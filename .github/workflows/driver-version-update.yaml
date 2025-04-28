@@ -44,14 +44,12 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set Up Python Environment
-        uses: actions/setup-python@v2
-        with:
-          python-version: ${{ matrix.python-version }}
+      - name: Set Up Go Environment
+        uses: actions/setup-go@v5
 
       - name: Install yq
         run: |
-          wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq && chmod +x /usr/bin/yq
+          go install github.com/mikefarah/yq/v4@latest
 
       - name: Run Codespell Autofix
         run: |
