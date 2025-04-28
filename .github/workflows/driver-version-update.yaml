@@ -1,0 +1,114 @@
+name: Driver Version Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      driverupdatetype:
+        description: "Version for replication module"
+        required: true
+        type: string
+      releasetype:
+        description: "Version for migration module"
+        required: false
+        type: string
+      powerscaleversion:
+        description: "Version for common module"
+        required: false
+        type: string
+      powermaxversion:
+        description: "Version for podmon module"
+        required: false
+        type: string
+      powerflexversion:
+        description: "Version for podmon module"
+        required: false
+        type: string
+      powerstoreversion:
+        description: "Version for podmon module"
+        required: false
+        type: string
+      unityversion:
+        description: "Version for podmon module"
+        required: false
+        type: string
+
+jobs:
+  driverupdate:
+    name: Perform Driver Version Update
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.12] # Define the Python version here
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Import GPG Key
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.CSM_GPG_PRIVATE_KEY }}
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+          git_tag_gpgsign: true
+          git_config_global: true
+
+      - name: Set Up Python Environment
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install yq
+        run: |
+          wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq && chmod +x /usr/bin/yq
+
+      - name: Run Codespell Autofix
+        run: |
+          chmod +x .github/scripts/driver-version-update.sh
+          ./.github/scripts/driver-version-update.sh --driver_update_type ${{ github.event.inputs.driverupdatetype }} --release_type ${{ github.event.inputs.releasetype }} --powerscale_version ${{ github.event.inputs.powerscaleversion }} --powermax_version ${{ github.event.inputs.powermaxversion }} --powerflex_version ${{ github.event.inputs.powerflexversion }} --powerstore_version ${{ github.event.inputs.powerstoreversion }} --unity_version ${{ github.event.inputs.unityversion }}
+
+      - name: Check for Uncommitted Changes
+        id: check_changes
+        run: |
+          git status
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "CHANGES_DETECTED=true" >> $GITHUB_ENV
+          else
+            echo "CHANGES_DETECTED=false" >> $GITHUB_ENV
+          fi
+
+      - name: Print Changes Detected
+        run: |
+          echo "Changes detected: ${{ env.CHANGES_DETECTED }}"
+
+      - name: Commit and Push Changes
+        if: env.CHANGES_DETECTED == 'true'
+        run: |
+          git add .
+          git commit -m "Autofix spelling issues"
+
+      - name: Generate GitHub App Token
+        uses: actions/create-github-app-token@v1.11.1
+        id: generate-token
+        if: env.CHANGES_DETECTED == 'true'
+        with:
+          app-id: ${{ vars.CSM_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CSM_RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Create Pull Request with Autofixes
+        if: env.CHANGES_DETECTED == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ steps.generate-token.outputs.token }}
+          branch: spellcheck-fixes
+          title: "Automated Spelling Corrections Applied"
+          body: |
+            This pull request was created automatically by a GitHub Action that fixes spelling errors across multiple files.
+
+            **Summary of changes:**
+            - Identified and corrected common spelling mistakes
+            - Ensured consistency and accuracy in documentation files
+
+            Please review the changes to confirm their accuracy and approve the PR.
+          sign-commits: true
+          delete-branch: true
