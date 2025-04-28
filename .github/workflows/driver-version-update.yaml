@@ -4,31 +4,31 @@ on:
   workflow_dispatch:
     inputs:
       driverupdatetype:
-        description: "Version for replication module"
+        description: "driverupdatetype"
         required: true
         type: string
       releasetype:
-        description: "Version for migration module"
+        description: "releasetype"
         required: false
         type: string
       powerscaleversion:
-        description: "Version for common module"
+        description: "powerscaleversion"
         required: false
         type: string
       powermaxversion:
-        description: "Version for podmon module"
+        description: "powermaxversion"
         required: false
         type: string
       powerflexversion:
-        description: "Version for podmon module"
+        description: "powerflexversion"
         required: false
         type: string
       powerstoreversion:
-        description: "Version for podmon module"
+        description: "powerstoreversion"
         required: false
         type: string
       unityversion:
-        description: "Version for podmon module"
+        description: "unityversion"
         required: false
         type: string
 
