@@ -36,9 +36,6 @@ jobs:
   driverupdate:
     name: Perform Driver Version Update
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [3.12] # Define the Python version here
 
     steps:
       - name: Checkout Repository
@@ -51,7 +48,7 @@ jobs:
         run: |
           go install github.com/mikefarah/yq/v4@latest
 
-      - name: Run Codespell Autofix
+      - name: Run Driver Version Update
         run: |
           chmod +x .github/scripts/driver-version-update.sh
           ./.github/scripts/driver-version-update.sh --driver_update_type ${{ github.event.inputs.driverupdatetype }} --release_type ${{ github.event.inputs.releasetype }} --powerscale_version ${{ github.event.inputs.powerscaleversion }} --powermax_version ${{ github.event.inputs.powermaxversion }} --powerflex_version ${{ github.event.inputs.powerflexversion }} --powerstore_version ${{ github.event.inputs.powerstoreversion }} --unity_version ${{ github.event.inputs.unityversion }}
@@ -74,26 +71,27 @@ jobs:
         if: env.CHANGES_DETECTED == 'true'
         run: |
           git add .
-          git commit -m "Autofix spelling issues"
+          git commit -m "update driver version"
 
       - name: Generate GitHub App Token
         uses: actions/create-github-app-token@v1.11.1
         id: generate-token
         if: env.CHANGES_DETECTED == 'true'
 
-      - name: Create Pull Request with Autofixes
+      - name: Create Pull Request with updated Driver version
         if: env.CHANGES_DETECTED == 'true'
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ steps.generate-token.outputs.token }}
-          branch: spellcheck-fixes
-          title: "Automated Spelling Corrections Applied"
+          branch: update-driver-version
+          title: "Driver Version Update"
           body: |
-            This pull request was created automatically by a GitHub Action that fixes spelling errors across multiple files.
+            This pull request was created automatically by a GitHub Action that Perform Driver Version Update.
 
             **Summary of changes:**
-            - Identified and corrected common spelling mistakes
+            - This PR updates Driver Version
             - Ensured consistency and accuracy in documentation files
+            - Update the driver version in the .go files.
 
             Please review the changes to confirm their accuracy and approve the PR.
           delete-branch: true
