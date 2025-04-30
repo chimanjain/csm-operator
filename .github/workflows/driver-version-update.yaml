@@ -49,6 +49,7 @@ jobs:
           go install github.com/mikefarah/yq/v4@latest
 
       - name: Run Driver Version Update
+        working-directory: ${{ github.workspace }}/csm-operator
         run: |
           chmod +x .github/scripts/driver-version-update.sh
           ./.github/scripts/driver-version-update.sh --driver_update_type ${{ github.event.inputs.driverupdatetype }} --release_type ${{ github.event.inputs.releasetype }} --powerscale_version ${{ github.event.inputs.powerscaleversion }} --powermax_version ${{ github.event.inputs.powermaxversion }} --powerflex_version ${{ github.event.inputs.powerflexversion }} --powerstore_version ${{ github.event.inputs.powerstoreversion }} --unity_version ${{ github.event.inputs.unityversion }}

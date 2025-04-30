@@ -1,9 +1,8 @@
 #!/bin/bash
 
 # Usage for major nightly update: bash driver-version-update.sh --driver_update_type "major" --release_type "nightly" --powerscale_version "2.15.0" --powermax_version "2.15.0" --powerflex_version "2.15.0" --powerstore_version "2.15.0" --unity_version "2.15.0"
-# Usage for major tagged update: bash driver-version-update.sh --driver_update_type "major" --release_type "tagged" --powerscale_version "2.15.0" --powermax_version "2.15.0" --powerflex_version "2.15.0" --powerstore_version "2.15.0" --unity_version "2.15.0"
+# Usage for major tag update: bash driver-version-update.sh --driver_update_type "major" --release_type "tag" --powerscale_version "2.15.0" --powermax_version "2.15.0" --powerflex_version "2.15.0" --powerstore_version "2.15.0" --unity_version "2.15.0"
 # Usage for patch update: bash driver-version-update.sh --driver_update_type "patch" --release_type "nightly" --powerscale_version "2.14.1" --powermax_version "2.14.1" --powerflex_version "2.14.1" --powerstore_version "2.14.1" --unity_version "2.14.1"
-# Usage for patch update for a particular driver: bash driver-version-update.sh --driver_update_type "patch" --release_type "nightly" --powerflex_version "2.14.1"
 
 # Initialize variables with default values
 driver_update_type=""
@@ -264,7 +263,7 @@ UpdateMajorPowerflexDriver() {
     # Specify the new image versions
     if [ "$release_type" == "nightly" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-vxflexos:nightly"
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-vxflexos:v$driver_version_update"
     fi
 
@@ -294,7 +293,7 @@ UpdateMajorPowerflexDriver() {
     if [ "$release_type" == "nightly" ]; then
         UpdateNightlyRelatedImages csi-vxflexos
         UpdateNightlyBaseRelatedImages csi-vxflexos
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         UpdateRelatedImages csi-vxflexos $update_config_version
         UpdateBaseRelatedImages csi-vxflexos $update_config_version
     fi
@@ -422,7 +421,7 @@ UpdatePatchPowerflexDriver() {
     # Specify the new image versions
     if [ "$release_type" == "nightly" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-vxflexos:nightly"
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-vxflexos:v$driver_version_update"
     fi
 
@@ -450,7 +449,7 @@ UpdatePatchPowerflexDriver() {
     if [ "$release_type" == "nightly" ]; then
         UpdateNightlyRelatedImages csi-vxflexos
         UpdateNightlyBaseRelatedImages csi-vxflexos
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         UpdateRelatedImages csi-vxflexos $update_config_version
         UpdateBaseRelatedImages csi-vxflexos $update_config_version
     fi
@@ -555,7 +554,7 @@ UpdateMajorPowermaxDriver() {
     # Specify the new image versions
     if [ "$release_type" == "nightly" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-powermax:nightly"
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-powermax:v$driver_version_update"
     fi
 
@@ -584,7 +583,7 @@ UpdateMajorPowermaxDriver() {
     if [ "$release_type" == "nightly" ]; then
         UpdateNightlyRelatedImages csi-powermax
         UpdateNightlyBaseRelatedImages csi-powermax
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         UpdateRelatedImages csi-powermax $update_config_version
         UpdateBaseRelatedImages csi-powermax $update_config_version
     fi
@@ -672,7 +671,7 @@ UpdatePatchPowermaxDriver() {
     # Specify the new image versions
     if [ "$release_type" == "nightly" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-powermax:nightly"
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-powermax:v$driver_version_update"
     fi
 
@@ -699,7 +698,7 @@ UpdatePatchPowermaxDriver() {
     if [ "$release_type" == "nightly" ]; then
         UpdateNightlyRelatedImages csi-powermax
         UpdateNightlyBaseRelatedImages csi-powermax
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         UpdateRelatedImages csi-powermax $update_config_version
         UpdateBaseRelatedImages csi-powermax $update_config_version
     fi
@@ -785,7 +784,7 @@ UpdateMajorPowerscaleDriver() {
     # Specify the new image versions
     if [ "$release_type" == "nightly" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-isilon:nightly"
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-isilon:v$driver_version_update"
     fi
 
@@ -814,7 +813,7 @@ UpdateMajorPowerscaleDriver() {
     if [ "$release_type" == "nightly" ]; then
         UpdateNightlyRelatedImages csi-isilon
         UpdateNightlyBaseRelatedImages csi-isilon
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         UpdateRelatedImages csi-isilon $update_config_version
         UpdateBaseRelatedImages csi-isilon $update_config_version
     fi
@@ -924,7 +923,7 @@ UpdatePatchPowerscaleDriver() {
     # Specify the new image versions
     if [ "$release_type" == "nightly" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-isilon:nightly"
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-isilon:v$driver_version_update"
     fi
 
@@ -951,7 +950,7 @@ UpdatePatchPowerscaleDriver() {
     if [ "$release_type" == "nightly" ]; then
         UpdateNightlyRelatedImages csi-isilon
         UpdateNightlyBaseRelatedImages csi-isilon
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         UpdateRelatedImages csi-isilon $update_config_version
         UpdateBaseRelatedImages csi-isilon $update_config_version
     fi
@@ -1041,7 +1040,7 @@ UpdateMajorPowerstoreDriver() {
     # Specify the new image versions
     if [ "$release_type" == "nightly" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-powerstore:nightly"
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-powerstore:v$driver_version_update"
     fi
 
@@ -1070,7 +1069,7 @@ UpdateMajorPowerstoreDriver() {
     if [ "$release_type" == "nightly" ]; then
         UpdateNightlyRelatedImages csi-powerstore
         UpdateNightlyBaseRelatedImages csi-powerstore
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         UpdateRelatedImages csi-powerstore $update_config_version
         UpdateBaseRelatedImages csi-powerstore $update_config_version
     fi
@@ -1137,7 +1136,7 @@ UpdatePatchPowerstoreDriver() {
     # Specify the new image versions
     if [ "$release_type" == "nightly" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-powerstore:nightly"
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-powerstore:v$driver_version_update"
     fi
 
@@ -1163,7 +1162,7 @@ UpdatePatchPowerstoreDriver() {
     if [ "$release_type" == "nightly" ]; then
         UpdateNightlyRelatedImages csi-powerstore
         UpdateNightlyBaseRelatedImages csi-powerstore
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         UpdateRelatedImages csi-powerstore $update_config_version
         UpdateBaseRelatedImages csi-powerstore $update_config_version
     fi
@@ -1228,7 +1227,7 @@ UpdateMajorUnityDriver() {
     # Specify the new image versions
     if [ "$release_type" == "nightly" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-unity:nightly"
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-unity:v$driver_version_update"
     fi
 
@@ -1257,7 +1256,7 @@ UpdateMajorUnityDriver() {
     if [ "$release_type" == "nightly" ]; then
         UpdateNightlyRelatedImages csi-unity
         UpdateNightlyBaseRelatedImages csi-unity
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         UpdateRelatedImages csi-unity $update_config_version
         UpdateBaseRelatedImages csi-unity $update_config_version
     fi
@@ -1317,7 +1316,7 @@ UpdatePatchUnityDriver() {
     # Specify the new image versions
     if [ "$release_type" == "nightly" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-unity:nightly"
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         new_image_version="quay.io/dell/container-storage-modules/csi-unity:v$driver_version_update"
     fi
 
@@ -1344,7 +1343,7 @@ UpdatePatchUnityDriver() {
     if [ "$release_type" == "nightly" ]; then
         UpdateNightlyRelatedImages csi-unity
         UpdateNightlyBaseRelatedImages csi-unity
-    elif [ "$release_type" == "tagged" ]; then
+    elif [ "$release_type" == "tag" ]; then
         UpdateRelatedImages csi-unity $update_config_version
         UpdateBaseRelatedImages csi-unity $update_config_version
     fi
