@@ -1,102 +1,40 @@
-name: Driver Version Update
+#!/bin/bash
 
-on:
+# Copyright 2025 DELL Inc. or its subsidiaries.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Update driver versions in CSM-Operator
+# reusable workflow
+on:  # yamllint disable-line rule:truthy
+  workflow_call:
   workflow_dispatch:
     inputs:
-      driverupdatetype:
-        description: "driverupdatetype"
+      csm-version:
+        description: 'CSM program version, ex: v1.12.0, v1.13.0, ...'
         required: true
-        type: string
-      releasetype:
-        description: "releasetype"
-        required: false
-        type: string
-      powerscaleversion:
-        description: "powerscaleversion"
-        required: false
-        type: string
-      powermaxversion:
-        description: "powermaxversion"
-        required: false
-        type: string
-      powerflexversion:
-        description: "powerflexversion"
-        required: false
-        type: string
-      powerstoreversion:
-        description: "powerstoreversion"
-        required: false
-        type: string
-      unityversion:
-        description: "unityversion"
-        required: false
-        type: string
-
+      update-option:
+        description: 'Select the update flag, ex. "nightly" or "tag"'
+        required: true
+        type: choice
+        options:
+          - nightly
+          - tag
 jobs:
-  driverupdate:
-    name: Perform Driver Version Update
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Install dos2unix
-        run: sudo apt-get update && sudo apt-get install -y dos2unix
-
-      - name: Set Up Go Environment
-        uses: actions/setup-go@v5
-
-      - name: Install yq
-        run: |
-          go install github.com/mikefarah/yq/v4@latest
-
-      - name: Run Driver Version Update
-        working-directory: ${{ github.workspace }}
-        run: |
-          dos2unix ./.github/scripts/driver-version-update.sh
-          chmod +x ./.github/scripts/driver-version-update.sh
-          bash ./.github/scripts/driver-version-update.sh --driver_update_type ${{ github.event.inputs.driverupdatetype }} --release_type ${{ github.event.inputs.releasetype }} --powerscale_version ${{ github.event.inputs.powerscaleversion }} --powermax_version ${{ github.event.inputs.powermaxversion }} --powerflex_version ${{ github.event.inputs.powerflexversion }} --powerstore_version ${{ github.event.inputs.powerstoreversion }} --unity_version ${{ github.event.inputs.unityversion }}
-
-      - name: Check for Uncommitted Changes
-        id: check_changes
-        run: |
-          git status
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "CHANGES_DETECTED=true" >> $GITHUB_ENV
-          else
-            echo "CHANGES_DETECTED=false" >> $GITHUB_ENV
-          fi
-
-      - name: Print Changes Detected
-        run: |
-          echo "Changes detected: ${{ env.CHANGES_DETECTED }}"
-
-      - name: Commit and Push Changes
-        if: env.CHANGES_DETECTED == 'true'
-        run: |
-          git add .
-          git commit -m "update driver version"
-
-      - name: Generate GitHub App Token
-        uses: actions/create-github-app-token@v1.11.1
-        id: generate-token
-        if: env.CHANGES_DETECTED == 'true'
-
-      - name: Create Pull Request with updated Driver version
-        if: env.CHANGES_DETECTED == 'true'
-        uses: peter-evans/create-pull-request@v5
-        with:
-          token: ${{ steps.generate-token.outputs.token }}
-          branch: update-driver-version
-          title: "Driver Version Update"
-          body: |
-            This pull request was created automatically by a GitHub Action that Perform Driver Version Update.
-
-            **Summary of changes:**
-            - This PR updates Driver Version
-            - Ensured consistency and accuracy in documentation files
-            - Update the driver version in the .go files.
-
-            Please review the changes to confirm their accuracy and approve the PR.
-          delete-branch: true
+  version-update:
+    uses: dell/common-github-actions/.github/workflows/operator-driver-version-update.yaml@usr/chiman/driver-version-update
+    name: CSM Operator Driver Version Update
+    with:
+      csm-version: ${{ inputs.csm-version }}
+      update-option: ${{ inputs.update-option}}
+    secrets: inherit
