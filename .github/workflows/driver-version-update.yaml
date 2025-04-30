@@ -41,6 +41,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Install dos2unix
+        run: sudo apt-get update && sudo apt-get install -y dos2unix
+
       - name: Set Up Go Environment
         uses: actions/setup-go@v5
 
@@ -51,8 +54,9 @@ jobs:
       - name: Run Driver Version Update
         working-directory: ${{ github.workspace }}
         run: |
-          chmod +x .github/scripts/driver-version-update.sh
-          ./.github/scripts/driver-version-update.sh --driver_update_type ${{ github.event.inputs.driverupdatetype }} --release_type ${{ github.event.inputs.releasetype }} --powerscale_version ${{ github.event.inputs.powerscaleversion }} --powermax_version ${{ github.event.inputs.powermaxversion }} --powerflex_version ${{ github.event.inputs.powerflexversion }} --powerstore_version ${{ github.event.inputs.powerstoreversion }} --unity_version ${{ github.event.inputs.unityversion }}
+          dos2unix ./.github/scripts/driver-version-update.sh
+          chmod +x ./.github/scripts/driver-version-update.sh
+          bash ./.github/scripts/driver-version-update.sh --driver_update_type ${{ github.event.inputs.driverupdatetype }} --release_type ${{ github.event.inputs.releasetype }} --powerscale_version ${{ github.event.inputs.powerscaleversion }} --powermax_version ${{ github.event.inputs.powermaxversion }} --powerflex_version ${{ github.event.inputs.powerflexversion }} --powerstore_version ${{ github.event.inputs.powerstoreversion }} --unity_version ${{ github.event.inputs.unityversion }}
 
       - name: Check for Uncommitted Changes
         id: check_changes
