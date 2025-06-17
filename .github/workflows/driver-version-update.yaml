@@ -30,11 +30,88 @@ on:  # yamllint disable-line rule:truthy
         options:
           - nightly
           - tag
+
 jobs:
-  version-update:
-    uses: dell/common-github-actions/.github/workflows/operator-driver-version-update.yaml@usr/chiman/test
-    name: CSM Operator Driver Version Update
-    with:
-      csm-version: ${{ inputs.csm-version }}
-      update-option: ${{ inputs.update-option}}
-    secrets: inherit
+  driver-version-update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout csm repository
+        uses: actions/checkout@v4
+        with:
+          repository: dell/csm
+          path: csm
+
+      - name: Read values from csm-versions.yaml
+        id: read_values
+        run: |
+          extract_value() {
+            grep -E "^$1" csm/config/csm-versions.yaml | cut -d ':' -f 2 | tr -d '[:space:]'
+          }
+          remove_v_prefix() {
+            local version="$1"
+            version="${version#v}"
+            echo "$version"
+          }
+
+          csm_version=$(extract_value 'csm-version')
+          csi_powerscale=$(extract_value 'csi-powerscale')
+          csi_powerstore=$(extract_value 'csi-powerstore')
+          csi_powermax=$(extract_value 'csi-powermax')
+          csi_vxflexos=$(extract_value 'csi-vxflexos')
+          csi_unity=$(extract_value 'csi-unity')
+
+          csi_powerscale=$(echo "$csi_powerscale" | grep -oP '(?<=^v).*|^[^v].*')
+          csi_powerstore=$(echo "$csi_powerstore" | grep -oP '(?<=^v).*|^[^v].*')
+          csi_powermax=$(echo "$csi_powermax" | grep -oP '(?<=^v).*|^[^v].*')
+          csi_vxflexos=$(echo "$csi_vxflexos" | grep -oP '(?<=^v).*|^[^v].*')
+          csi_unity=$(echo "$csi_unity" | grep -oP '(?<=^v).*|^[^v].*')
+
+          echo "CSM_VERSION=$csm_version" >> $GITHUB_ENV
+          echo "CSI_POWERSCALE=$csi_powerscale" >> $GITHUB_ENV
+          echo "CSI_POWERSTORE=$csi_powerstore" >> $GITHUB_ENV
+          echo "CSI_POWERMAX=$csi_powermax" >> $GITHUB_ENV
+          echo "CSI_VXFLEXOS=$csi_vxflexos" >> $GITHUB_ENV
+          echo "CSI_UNITY=$csi_unity" >> $GITHUB_ENV
+
+      - name: Checkout csm-operator repository
+        uses: actions/checkout@v4
+        with:
+          repository: dell/csm-operator
+
+      - name: Set Up Go Environment
+        uses: actions/setup-go@v5
+
+      - name: Install yq
+        run: |
+          go install github.com/mikefarah/yq/v4@latest
+
+      - name: Updating Driver version
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          echo "Input csm version --> ${{ inputs.csm-version }}"
+          echo "Update flag --> ${{ inputs.update-option }}"
+          csm_ver_provided=${{ inputs.csm-version }}
+
+          csm_repo_ver="$(echo -e "${CSM_VERSION}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          csm_ver_provided="$(echo -e "${csm_ver_provided}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+
+          echo "./.github/scripts/driver-version-update.sh --driver_update_type \"major\" --release_type \"${{ inputs.update-option }}\" --powerscale_version \"$CSI_POWERSCALE\" --powermax_version \"$CSI_POWERMAX\" --powerflex_version \"$CSI_VXFLEXOS\" --powerstore_version \"$CSI_POWERSTORE\" --unity_version \"$CSI_UNITY\""
+          if [ $csm_repo_ver == $csm_ver_provided ]; then
+          echo "CSM version verified, proceeding with the update..."
+          chmod +x ./.github/scripts/driver-version-update.sh
+          bash ./.github/scripts/driver-version-update.sh --driver_update_type "major" --release_type "${{ inputs.update-option }}" --powerscale_version "$CSI_POWERSCALE" --powermax_version "$CSI_POWERMAX" --powerflex_version "$CSI_VXFLEXOS" --powerstore_version "$CSI_POWERSTORE" --unity_version "$CSI_UNITY"
+          else
+          echo "CSM version mismatch detected. Please verify and update the version file in the CSM repository."
+          fi
+
+      - name: Create a new branch with the changes
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Updated driver version to ${{ inputs.csm-version }}"
+          git push origin HEAD:${{ github.sha }}-update
+
