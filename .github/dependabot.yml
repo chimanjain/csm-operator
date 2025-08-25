@@ -35,8 +35,7 @@ updates:
     directory: "/"
     schedule:
       # Check for updates to GitHub Actions every week
-      interval: "weekly"
-      day: "saturday"
+      interval: "daily"
     groups:
       github-actions:
         patterns:
@@ -52,6 +51,13 @@ updates:
       - "/operatorconfig/driverconfig/unity/v2.15.0/**"
       - "/samples/v2.15.0/**/**"
       - "/tests/e2e/testfiles/**"
+      - "/testdata/default.yaml"
+      - "/operatorconfig/driverconfig/common/default.yaml"
+      - "/config/samples/storage_v1_csm_powerflex.yaml"
+      - "/config/samples/storage_v1_csm_powermax.yaml"
+      - "/config/samples/storage_v1_csm_powerscale.yaml"
+      - "/config/samples/storage_v1_csm_powerstore.yaml"
+      - "/config/samples/storage_v1_csm_unity.yaml"
     schedule:
       interval: "daily"
     target-branch: "main"
