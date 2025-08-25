@@ -17,6 +17,7 @@ updates:
       - "/operatorconfig/driverconfig/unity/v2.15.0/**"
       - "/samples/v2.15.0/**/**"
       - "/tests/e2e/testfiles/**"
+    files:
       - "/testdata/default.yaml"
       - "/operatorconfig/driverconfig/common/default.yaml"
       - "/config/samples/storage_v1_csm_powerflex.yaml"
