@@ -1,4 +1,4 @@
-// Copyright (c) 2022 Dell Inc., or its subsidiaries. All Rights Reserved.
+// Copyright (c) 2025 Dell Inc., or its subsidiaries. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,19 +12,16 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 
-	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 
 	csmv1 "github.com/dell/csm-operator/api/v1"
 	drivers "github.com/dell/csm-operator/pkg/drivers"
 	"github.com/dell/csm-operator/pkg/logger"
+	operatorutils "github.com/dell/csm-operator/pkg/operatorutils"
 	"github.com/dell/csm-operator/pkg/resources/deployment"
-	utils "github.com/dell/csm-operator/pkg/utils"
 	appsv1 "k8s.io/api/apps/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	confv1 "k8s.io/client-go/applyconfigurations/apps/v1"
 	acorev1 "k8s.io/client-go/applyconfigurations/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -52,6 +49,9 @@ const (
 	// ObservabilityMetricsPowerMaxName - component metrics-powermax
 	ObservabilityMetricsPowerMaxName string = "metrics-powermax"
 
+	// ObservabilityMetricsPowerStoreName - component metrics-powerstore
+	ObservabilityMetricsPowerStoreName string = "metrics-powerstore"
+
 	// TopologyLogLevel -
 	TopologyLogLevel string = "<TOPOLOGY_LOG_LEVEL>"
 
@@ -69,6 +69,12 @@ const (
 
 	// PowerscalePerformanceMetricsEnabled - enable/disable collection of performance metrics
 	PowerscalePerformanceMetricsEnabled string = "<POWERSCALE_PERFORMANCE_METRICS_ENABLED>"
+
+	// PowerscaleTopologyMetricsEnabled - enable/disable collection of topology metrics
+	PowerscaleTopologyMetricsEnabled string = "<POWERSCALE_TOPOLOGY_METRICS_ENABLED>"
+
+	// PowerscaleTopologyMetricsPollFrequency - polling frequency to get topology metrics data
+	PowerscaleTopologyMetricsPollFrequency string = "<POWERSCALE_TOPOLOGY_METRICS_POLL_FREQUENCY>"
 
 	// PowerscaleClusterCapacityPollFrequency - polling frequency to get cluster capacity data
 	PowerscaleClusterCapacityPollFrequency string = "<POWERSCALE_CLUSTER_CAPACITY_POLL_FREQUENCY>"
@@ -154,6 +160,12 @@ const (
 	// PmaxConcurrentQueries - number of concurrent queries
 	PmaxConcurrentQueries string = "<POWERMAX_MAX_CONCURRENT_QUERIES>"
 
+	// PmaxTopologyMetricsEnabled - enable/disable collection of topology metrics
+	PmaxTopologyMetricsEnabled string = "<POWERMAX_TOPOLOGY_METRICS_ENABLED>"
+
+	// PmaxTopologyMetricsPollFrequency - polling frequency to get topology metrics data
+	PmaxTopologyMetricsPollFrequency string = "<POWERMAX_TOPOLOGY_METRICS_POLL_FREQUENCY>"
+
 	// PmaxLogLevel - the level for the Powermax metrics
 	PmaxLogLevel string = "<POWERMAX_LOG_LEVEL>"
 
@@ -162,6 +174,48 @@ const (
 
 	// PMaxObsYamlFile - powermax metrics yaml file
 	PMaxObsYamlFile string = "karavi-metrics-powermax.yaml"
+
+	// PstoreObsYamlFile - powerstore metrics yaml file
+	PstoreObsYamlFile string = "karavi-metrics-powerstore.yaml"
+
+	// PstoreMaxConcurrentQueries - number of concurrent queries
+	PstoreMaxConcurrentQueries string = "<POWERSTORE_MAX_CONCURRENT_QUERIES>"
+
+	// PstoreVolumeEnabled - enable/disable volume metrics
+	PstoreVolumeEnabled string = "<POWERSTORE_VOLUME_METRICS_ENABLED>"
+
+	// PstoreVolumeIoPollFrequency - polling frequency to get volume IO metrics
+	PstoreVolumeIoPollFrequency string = "<POWERSTORE_VOLUME_IO_POLL_FREQUENCY>"
+
+	// PstoreSpacePollFrequency - polling frequency to get cluster capacity metrics data
+	PstoreSpacePollFrequency string = "<POWERSTORE_SPACE_POLL_FREQUENCY>"
+
+	// PstoreArrayPollFrequency - polling frequency to get array capacity metrics data
+	PstoreArrayPollFrequency string = "<POWERSTORE_ARRAY_POLL_FREQUENCY>"
+
+	// PstoreFileSystemPollFrequency - polling frequency to get file system capacity metrics data
+	PstoreFileSystemPollFrequency string = "<POWERSTORE_FILE_SYSTEM_POLL_FREQUENCY>"
+
+	// PstoreTopologyEnabled - enable/disable topology metrics
+	PstoreTopologyEnabled string = "<POWERSTORE_TOPOLOGY_METRICS_ENABLED>"
+
+	// PstoreTopologyPollFrequency - polling frequency to get topology capacity metrics data
+	PstoreTopologyPollFrequency string = "<POWERSTORE_TOPOLOGY_POLL_FREQUENCY>"
+
+	// PstoreLogLevel - the log level for the Powerstore metrics
+	PstoreLogLevel string = "<POWERSTORE_LOG_LEVEL>"
+
+	// PstoreLogFormat - the log format for the Powerstore metrics
+	PstoreLogFormat string = "<POWERSTORE_LOG_FORMAT>"
+
+	// ZipkinURI - Zipkin URI for Powerstore metrics
+	ZipkinURI string = "<ZIPKIN_URI>"
+
+	// ZipkinServiceName - Zipkin service name for Powerstore metrics
+	ZipkinServiceName string = "<ZIPKIN_SERVICE_NAME>"
+
+	// ZipkinProbability - Zipkin probability for Powerstore metrics
+	ZipkinProbability string = "<ZIPKIN_PROBABILITY>"
 
 	// SelfSignedCert - self-signed certificate file
 	SelfSignedCert string = "selfsigned-cert.yaml"
@@ -183,7 +237,7 @@ const (
 )
 
 // ComponentNameToSecretPrefix - map from component name to secret prefix
-var ComponentNameToSecretPrefix = map[string]string{ObservabilityOtelCollectorName: "otel-collector", ObservabilityTopologyName: "karavi-topology"}
+var ComponentNameToSecretPrefix = map[string]string{ObservabilityOtelCollectorName: "otel-collector", ObservabilityTopologyName: "karavi-topology", ObservabilityMetricsPowerStoreName: "karavi-metrics-powerstore"}
 
 // ObservabilitySupportedDrivers is a map containing the CSI Drivers supported by CSM Replication. The key is driver name and the value is the driver plugin identifier
 var ObservabilitySupportedDrivers = map[string]SupportedDriverParam{
@@ -203,6 +257,10 @@ var ObservabilitySupportedDrivers = map[string]SupportedDriverParam{
 		PluginIdentifier:              drivers.PowerFlexPluginIdentifier,
 		DriverConfigParamsVolumeMount: drivers.PowerFlexConfigParamsVolumeMount,
 	},
+	"powerstore": {
+		PluginIdentifier:              drivers.PowerStorePluginIdentifier,
+		DriverConfigParamsVolumeMount: drivers.PowerStoreConfigParamsVolumeMount,
+	},
 	string(csmv1.PowerMax): {
 		PluginIdentifier:              drivers.PowerMaxPluginIdentifier,
 		DriverConfigParamsVolumeMount: drivers.PowerMaxConfigParamsVolumeMount,
@@ -214,6 +272,7 @@ var defaultVolumeConfigName = map[csmv1.DriverType]string{
 	csmv1.PowerScale:     "isilon-creds",
 	csmv1.PowerFlexName:  "vxflexos-config",
 	csmv1.PowerFlex:      "vxflexos-config",
+	csmv1.PowerStore:     "powerstore-config",
 }
 
 var defaultSecretsName = map[csmv1.DriverType]string{
@@ -222,12 +281,13 @@ var defaultSecretsName = map[csmv1.DriverType]string{
 	csmv1.PowerFlex:      "<DriverDefaultReleaseName>-config",
 	csmv1.PowerFlexName:  "<DriverDefaultReleaseName>-config",
 	csmv1.PowerMax:       "<DriverDefaultReleaseName>-creds",
+	csmv1.PowerStore:     "<DriverDefaultReleaseName>-config",
 }
 
 var defaultAuthSecretsName = []string{"karavi-authorization-config", "proxy-authz-tokens", "proxy-server-root-certificate"}
 
-// ObservabilityPrecheck  - runs precheck for CSM Observability
-func ObservabilityPrecheck(ctx context.Context, op utils.OperatorConfig, obs csmv1.Module, cr csmv1.ContainerStorageModule, _ utils.ReconcileCSM) error {
+// ObservabilityPrecheck  - runs precheck for CSM Otoolsabilitytools
+func ObservabilityPrecheck(ctx context.Context, op operatorutils.OperatorConfig, obs csmv1.Module, cr csmv1.ContainerStorageModule, _ operatorutils.ReconcileCSM) error {
 	log := logger.GetLogger(ctx)
 
 	if _, ok := ObservabilitySupportedDrivers[string(cr.Spec.Driver.CSIDriverType)]; !ok {
@@ -246,31 +306,36 @@ func ObservabilityPrecheck(ctx context.Context, op utils.OperatorConfig, obs csm
 	return nil
 }
 
-// ObservabilityTopology - delete or update topology objects
-func ObservabilityTopology(ctx context.Context, isDeleting bool, op utils.OperatorConfig, cr csmv1.ContainerStorageModule, ctrlClient client.Client) error {
+// ObservabilityTopology - delete or update topology objectstools
+func ObservabilityTopology(ctx context.Context, isDeleting bool, op operatorutils.OperatorConfig, cr csmv1.ContainerStorageModule, ctrlClient client.Client) error {
 	log := logger.GetLogger(ctx)
-	topoObjects, err := getTopology(op, cr)
-	if err != nil {
-		return err
-	}
+	configVersion := cr.Spec.Driver.ConfigVersion
+	if strings.Contains(configVersion, "v2.13") || strings.Contains(configVersion, "v2.14") {
+		topoObjects, err := getTopology(op, cr)
+		if err != nil {
+			return err
+		}
 
-	for _, ctrlObj := range topoObjects {
-		log.Infow("current topoObject is ", "ctrlObj", ctrlObj)
-		if isDeleting {
-			if err := utils.DeleteObject(ctx, ctrlObj, ctrlClient); err != nil {
-				return err
-			}
-		} else {
-			if err := utils.ApplyCTRLObject(ctx, ctrlObj, ctrlClient); err != nil {
-				return err
+		for _, ctrlObj := range topoObjects {
+			log.Infow("current topoObject is ", "ctrlObj", ctrlObj)
+			if isDeleting {
+				if err := operatorutils.DeleteObject(ctx, ctrlObj, ctrlClient); err != nil {
+					return err
+				}
+			} else {
+				if err := operatorutils.ApplyCTRLObject(ctx, ctrlObj, ctrlClient); err != nil {
+					return err
+				}
 			}
 		}
+	} else {
+		return fmt.Errorf("CSM Operator does not suport topology deployment from CSM 1.15 onwards")
 	}
 
 	return nil
 }
 
-func getTopology(op utils.OperatorConfig, cr csmv1.ContainerStorageModule) ([]crclient.Object, error) {
+func getTopology(op operatorutils.OperatorConfig, cr csmv1.ContainerStorageModule) ([]crclient.Object, error) {
 	obs, err := getObservabilityModule(cr)
 	if err != nil {
 		return nil, err
@@ -302,34 +367,34 @@ func getTopology(op utils.OperatorConfig, cr csmv1.ContainerStorageModule) ([]cr
 	YamlString = strings.ReplaceAll(YamlString, CSMNameSpace, cr.Namespace)
 	YamlString = strings.ReplaceAll(YamlString, TopologyLogLevel, logLevel)
 
-	topoObjects, err := utils.GetModuleComponentObj([]byte(YamlString))
+	topoObjects, err := operatorutils.GetModuleComponentObj([]byte(YamlString))
 	if err != nil {
 		return nil, err
 	}
-	utils.SetContainerImage(topoObjects, "karavi-topology", "karavi-topology", topologyImage)
+	operatorutils.SetContainerImage(topoObjects, "karavi-topology", "karavi-topology", topologyImage)
 
 	return topoObjects, nil
 }
 
 // OtelCollector - delete or update otel collector objects
-func OtelCollector(ctx context.Context, isDeleting bool, op utils.OperatorConfig, cr csmv1.ContainerStorageModule, ctrlClient client.Client) error {
+func OtelCollector(ctx context.Context, isDeleting bool, op operatorutils.OperatorConfig, cr csmv1.ContainerStorageModule, ctrlClient client.Client) error {
 	YamlString, err := getOtelCollector(op, cr)
 	if err != nil {
 		return err
 	}
 
-	otelObjects, err := utils.GetModuleComponentObj([]byte(YamlString))
+	otelObjects, err := operatorutils.GetModuleComponentObj([]byte(YamlString))
 	if err != nil {
 		return err
 	}
 
 	for _, ctrlObj := range otelObjects {
 		if isDeleting {
-			if err := utils.DeleteObject(ctx, ctrlObj, ctrlClient); err != nil {
+			if err := operatorutils.DeleteObject(ctx, ctrlObj, ctrlClient); err != nil {
 				return err
 			}
 		} else {
-			if err := utils.ApplyCTRLObject(ctx, ctrlObj, ctrlClient); err != nil {
+			if err := operatorutils.ApplyCTRLObject(ctx, ctrlObj, ctrlClient); err != nil {
 				return err
 			}
 		}
@@ -339,7 +404,7 @@ func OtelCollector(ctx context.Context, isDeleting bool, op utils.OperatorConfig
 }
 
 // getOtelCollector - get otel collector yaml string
-func getOtelCollector(op utils.OperatorConfig, cr csmv1.ContainerStorageModule) (string, error) {
+func getOtelCollector(op operatorutils.OperatorConfig, cr csmv1.ContainerStorageModule) (string, error) {
 	YamlString := ""
 
 	obs, err := getObservabilityModule(cr)
@@ -354,7 +419,7 @@ func getOtelCollector(op utils.OperatorConfig, cr csmv1.ContainerStorageModule) 
 	YamlString = string(buf)
 
 	nginxProxyImage := "nginxinc/nginx-unprivileged:1.27"
-	otelCollectorImage := "ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector:0.124.0"
+	otelCollectorImage := "ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector:0.131.0"
 	configVersion := cr.Spec.Driver.ConfigVersion
 	// Currently supported config versions by this operator(release candidate for CSM v2.14.0) are v2.11.0, v2.12.0, v2.13.0.
 	// These config versions were already supported by the released operators. So use the same otel image for them.
@@ -379,11 +444,12 @@ func getOtelCollector(op utils.OperatorConfig, cr csmv1.ContainerStorageModule) 
 	YamlString = strings.ReplaceAll(YamlString, CSMNameSpace, cr.Namespace)
 	YamlString = strings.ReplaceAll(YamlString, OtelCollectorImage, otelCollectorImage)
 	YamlString = strings.ReplaceAll(YamlString, NginxProxyImage, nginxProxyImage)
+
 	return YamlString, nil
 }
 
 // PowerScaleMetrics - delete or update powerscale metrics objects
-func PowerScaleMetrics(ctx context.Context, isDeleting bool, op utils.OperatorConfig, cr csmv1.ContainerStorageModule, ctrlClient client.Client, k8sClient kubernetes.Interface) error {
+func PowerScaleMetrics(ctx context.Context, isDeleting bool, op operatorutils.OperatorConfig, cr csmv1.ContainerStorageModule, ctrlClient client.Client, k8sClient kubernetes.Interface) error {
 	log := logger.GetLogger(ctx)
 
 	powerscaleMetricsObjects, err := getPowerScaleMetricsObjects(op, cr)
@@ -410,19 +476,13 @@ func PowerScaleMetrics(ctx context.Context, isDeleting bool, op utils.OperatorCo
 		return fmt.Errorf("could not find deployment obj")
 	}
 
-	// append secret objects
-	powerscaleMetricsObjects, err = appendObservabilitySecrets(ctx, cr, powerscaleMetricsObjects, ctrlClient, k8sClient)
-	if err != nil {
-		return fmt.Errorf("copy secrets from %s: %v", cr.Namespace, err)
-	}
-
 	for _, ctrlObj := range powerscaleMetricsObjects {
 		if isDeleting {
-			if err := utils.DeleteObject(ctx, ctrlObj, ctrlClient); err != nil {
+			if err := operatorutils.DeleteObject(ctx, ctrlObj, ctrlClient); err != nil {
 				return err
 			}
 		} else {
-			if err := utils.ApplyCTRLObject(ctx, ctrlObj, ctrlClient); err != nil {
+			if err := operatorutils.ApplyCTRLObject(ctx, ctrlObj, ctrlClient); err != nil {
 				return err
 			}
 		}
@@ -438,7 +498,7 @@ func PowerScaleMetrics(ctx context.Context, isDeleting bool, op utils.OperatorCo
 		deploymentObj := &appsv1.Deployment{}
 		if err = ctrlClient.Get(ctx, deploymentKey, deploymentObj); err == nil {
 			if err = ctrlClient.Delete(ctx, deploymentObj); err != nil && !k8serrors.IsNotFound(err) {
-				return fmt.Errorf("error delete deployment: %v", err)
+				return fmt.Errorf("error deleting deployment: %v", err)
 			}
 		} else {
 			log.Infow("error getting deployment", "deploymentKey", deploymentKey)
@@ -453,8 +513,168 @@ func PowerScaleMetrics(ctx context.Context, isDeleting bool, op utils.OperatorCo
 	return nil
 }
 
+// PowerStoreMetrics - delete or update powerstore metrics objects
+func PowerStoreMetrics(ctx context.Context, isDeleting bool, op operatorutils.OperatorConfig, cr csmv1.ContainerStorageModule, ctrlClient client.Client, k8sClient kubernetes.Interface) error {
+	log := logger.GetLogger(ctx)
+
+	powerstoreMetricsObjects, err := getPowerStoreMetricsObjects(op, cr)
+	if err != nil {
+		return err
+	}
+
+	// update deployment for powerstore metrics
+	var dpApply *confv1.DeploymentApplyConfiguration
+	foundDp := false
+	for i, obj := range powerstoreMetricsObjects {
+		if deployment, ok := obj.(*appsv1.Deployment); ok {
+			dpApply, err = parseObservabilityMetricsDeployment(ctx, deployment, op, cr)
+			if err != nil {
+				return err
+			}
+			foundDp = true
+			powerstoreMetricsObjects[i] = powerstoreMetricsObjects[len(powerstoreMetricsObjects)-1]
+			powerstoreMetricsObjects = powerstoreMetricsObjects[:len(powerstoreMetricsObjects)-1]
+			break
+		}
+	}
+	if !foundDp {
+		return fmt.Errorf("could not find deployment obj")
+	}
+
+	for _, ctrlObj := range powerstoreMetricsObjects {
+		if isDeleting {
+			if err := operatorutils.DeleteObject(ctx, ctrlObj, ctrlClient); err != nil {
+				return err
+			}
+		} else {
+			if err := operatorutils.ApplyCTRLObject(ctx, ctrlObj, ctrlClient); err != nil {
+				return err
+			}
+		}
+	}
+
+	// update Deployment
+	if isDeleting {
+		// Delete Deployment
+		deploymentKey := client.ObjectKey{
+			Namespace: *dpApply.Namespace,
+			Name:      *dpApply.Name,
+		}
+		deploymentObj := &appsv1.Deployment{}
+		if err = ctrlClient.Get(ctx, deploymentKey, deploymentObj); err == nil {
+			if err = ctrlClient.Delete(ctx, deploymentObj); err != nil && !k8serrors.IsNotFound(err) {
+				return fmt.Errorf("error deleting deployment: %v", err)
+			}
+		} else {
+			log.Infow("error getting deployment", "deploymentKey", deploymentKey)
+		}
+	} else {
+		// Create/Update Deployment
+		if err = deployment.SyncDeployment(ctx, *dpApply, k8sClient, cr.Name); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// getPowerStoreMetricsObjects - get powerstore metrics yaml string
+func getPowerStoreMetricsObjects(op operatorutils.OperatorConfig, cr csmv1.ContainerStorageModule) ([]crclient.Object, error) {
+	obs, err := getObservabilityModule(cr)
+	if err != nil {
+		return nil, err
+	}
+
+	buf, err := readConfigFile(obs, cr, op, PstoreObsYamlFile)
+	if err != nil {
+		return nil, err
+	}
+	YamlString := string(buf)
+
+	obsPstoreImage := ""
+	maxConcurrentQueries := "10"
+	volumeEnabled := "true"
+	volumePollFrequency := "10"
+	spacePollFrequency := "300"
+	arrayPollFrequency := "300"
+	fsPollFrequency := "20"
+	topologyEnabled := "true"
+	topologyPollFrequency := "30"
+	zipkinURI := ""
+	zipkinServiceName := "metrics-powerstore"
+	zipkinProbability := "0.0"
+	logLevel := "INFO"
+	logFormat := "TEXT"
+	otelCollectorAddress := "otel-collector:55680"
+
+	for _, component := range obs.Components {
+		if component.Name == ObservabilityMetricsPowerStoreName {
+			if component.Image != "" {
+				obsPstoreImage = string(component.Image)
+			}
+			for _, env := range component.Envs {
+				if strings.Contains(PstoreMaxConcurrentQueries, env.Name) {
+					maxConcurrentQueries = env.Value
+				} else if strings.Contains(PstoreVolumeEnabled, env.Name) {
+					volumeEnabled = env.Value
+				} else if strings.Contains(PstoreVolumeIoPollFrequency, env.Name) {
+					volumePollFrequency = env.Value
+				} else if strings.Contains(PstoreSpacePollFrequency, env.Name) {
+					spacePollFrequency = env.Value
+				} else if strings.Contains(PstoreArrayPollFrequency, env.Name) {
+					arrayPollFrequency = env.Value
+				} else if strings.Contains(PstoreFileSystemPollFrequency, env.Name) {
+					fsPollFrequency = env.Value
+				} else if strings.Contains(PstoreTopologyEnabled, env.Name) {
+					topologyEnabled = env.Value
+				} else if strings.Contains(PstoreTopologyPollFrequency, env.Name) {
+					topologyPollFrequency = env.Value
+				} else if strings.Contains(ZipkinURI, env.Name) {
+					zipkinURI = env.Value
+				} else if strings.Contains(ZipkinServiceName, env.Name) {
+					zipkinServiceName = env.Value
+				} else if strings.Contains(ZipkinProbability, env.Name) {
+					zipkinProbability = env.Value
+				} else if strings.Contains(PstoreLogLevel, env.Name) {
+					logLevel = env.Value
+				} else if strings.Contains(PstoreLogFormat, env.Name) {
+					logFormat = env.Value
+				} else if strings.Contains(OtelCollectorAddress, env.Name) {
+					otelCollectorAddress = env.Value
+				}
+			}
+		}
+	}
+
+	YamlString = strings.ReplaceAll(YamlString, CSMName, cr.Name)
+	YamlString = strings.ReplaceAll(YamlString, CSMNameSpace, cr.Namespace)
+	YamlString = strings.ReplaceAll(YamlString, PstoreMaxConcurrentQueries, maxConcurrentQueries)
+	YamlString = strings.ReplaceAll(YamlString, PstoreVolumeEnabled, volumeEnabled)
+	YamlString = strings.ReplaceAll(YamlString, PstoreVolumeIoPollFrequency, volumePollFrequency)
+	YamlString = strings.ReplaceAll(YamlString, PstoreSpacePollFrequency, spacePollFrequency)
+	YamlString = strings.ReplaceAll(YamlString, PstoreArrayPollFrequency, arrayPollFrequency)
+	YamlString = strings.ReplaceAll(YamlString, PstoreFileSystemPollFrequency, fsPollFrequency)
+	YamlString = strings.ReplaceAll(YamlString, PstoreTopologyEnabled, topologyEnabled)
+	YamlString = strings.ReplaceAll(YamlString, PstoreTopologyPollFrequency, topologyPollFrequency)
+	YamlString = strings.ReplaceAll(YamlString, ZipkinURI, zipkinURI)
+	YamlString = strings.ReplaceAll(YamlString, ZipkinServiceName, zipkinServiceName)
+	YamlString = strings.ReplaceAll(YamlString, ZipkinProbability, zipkinProbability)
+	YamlString = strings.ReplaceAll(YamlString, PstoreLogLevel, logLevel)
+	YamlString = strings.ReplaceAll(YamlString, PstoreLogFormat, logFormat)
+	YamlString = strings.ReplaceAll(YamlString, OtelCollectorAddress, otelCollectorAddress)
+	YamlString = strings.ReplaceAll(YamlString, DriverDefaultReleaseName, cr.Name)
+
+	metricsObjects, err := operatorutils.GetModuleComponentObj([]byte(YamlString))
+	if err != nil {
+		return nil, err
+	}
+	operatorutils.SetContainerImage(metricsObjects, "karavi-metrics-powerstore", "karavi-metrics-powerstore", obsPstoreImage)
+
+	return metricsObjects, nil
+}
+
 // getPowerScaleMetricsObjects - get powerscale metrics yaml string
-func getPowerScaleMetricsObjects(op utils.OperatorConfig, cr csmv1.ContainerStorageModule) ([]crclient.Object, error) {
+func getPowerScaleMetricsObjects(op operatorutils.OperatorConfig, cr csmv1.ContainerStorageModule) ([]crclient.Object, error) {
 	obs, err := getObservabilityModule(cr)
 	if err != nil {
 		return nil, err
@@ -472,6 +692,8 @@ func getPowerScaleMetricsObjects(op utils.OperatorConfig, cr csmv1.ContainerStor
 	maxConcurrentQueries := "10"
 	capacityEnabled := "true"
 	performanceEnabled := "true"
+	topologyEnabled := "true"
+	topologyPollFrequency := "30"
 	clusterCapacityPollFrequency := "30"
 	clusterPerformancePollFrequency := "20"
 	quotaCapacityPollFrequency := "30"
@@ -494,6 +716,10 @@ func getPowerScaleMetricsObjects(op utils.OperatorConfig, cr csmv1.ContainerStor
 					capacityEnabled = env.Value
 				} else if strings.Contains(PowerscalePerformanceMetricsEnabled, env.Name) {
 					performanceEnabled = env.Value
+				} else if strings.Contains(PowerscaleTopologyMetricsEnabled, env.Name) {
+					topologyEnabled = env.Value
+				} else if strings.Contains(PowerscaleTopologyMetricsPollFrequency, env.Name) {
+					topologyPollFrequency = env.Value
 				} else if strings.Contains(PowerscaleClusterCapacityPollFrequency, env.Name) {
 					clusterCapacityPollFrequency = env.Value
 				} else if strings.Contains(PowerscaleClusterPerformancePollFrequency, env.Name) {
@@ -521,6 +747,8 @@ func getPowerScaleMetricsObjects(op utils.OperatorConfig, cr csmv1.ContainerStor
 	YamlString = strings.ReplaceAll(YamlString, PowerScaleMaxConcurrentQueries, maxConcurrentQueries)
 	YamlString = strings.ReplaceAll(YamlString, PowerscaleCapacityMetricsEnabled, capacityEnabled)
 	YamlString = strings.ReplaceAll(YamlString, PowerscalePerformanceMetricsEnabled, performanceEnabled)
+	YamlString = strings.ReplaceAll(YamlString, PowerscaleTopologyMetricsEnabled, topologyEnabled)
+	YamlString = strings.ReplaceAll(YamlString, PowerscaleTopologyMetricsPollFrequency, topologyPollFrequency)
 	YamlString = strings.ReplaceAll(YamlString, PowerscaleClusterCapacityPollFrequency, clusterCapacityPollFrequency)
 	YamlString = strings.ReplaceAll(YamlString, PowerscaleClusterPerformancePollFrequency, clusterPerformancePollFrequency)
 	YamlString = strings.ReplaceAll(YamlString, PowerscaleQuotaCapacityPollFrequency, quotaCapacityPollFrequency)
@@ -531,17 +759,17 @@ func getPowerScaleMetricsObjects(op utils.OperatorConfig, cr csmv1.ContainerStor
 	YamlString = strings.ReplaceAll(YamlString, OtelCollectorAddress, otelCollectorAddress)
 	YamlString = strings.ReplaceAll(YamlString, DriverDefaultReleaseName, cr.Name)
 
-	metricsObjects, err := utils.GetModuleComponentObj([]byte(YamlString))
+	metricsObjects, err := operatorutils.GetModuleComponentObj([]byte(YamlString))
 	if err != nil {
 		return nil, err
 	}
-	utils.SetContainerImage(metricsObjects, "karavi-metrics-powerscale", "karavi-metrics-powerscale", pscaleImage)
+	operatorutils.SetContainerImage(metricsObjects, "karavi-metrics-powerscale", "karavi-metrics-powerscale", pscaleImage)
 
 	return metricsObjects, nil
 }
 
 // parseObservabilityMetricsDeployment - update secret volume and inject authorization to deployment
-func parseObservabilityMetricsDeployment(ctx context.Context, deployment *appsv1.Deployment, op utils.OperatorConfig, cr csmv1.ContainerStorageModule) (*confv1.DeploymentApplyConfiguration, error) {
+func parseObservabilityMetricsDeployment(ctx context.Context, deployment *appsv1.Deployment, op operatorutils.OperatorConfig, cr csmv1.ContainerStorageModule) (*confv1.DeploymentApplyConfiguration, error) {
 	// parse deployment to DeploymentApplyConfiguration
 	dpBuf, err := yaml.Marshal(deployment)
 	if err != nil {
@@ -561,36 +789,17 @@ func parseObservabilityMetricsDeployment(ctx context.Context, deployment *appsv1
 	}
 
 	// inject authorization to deployment
-	if authorizationEnabled, _ := utils.IsModuleEnabled(ctx, cr, csmv1.Authorization); authorizationEnabled {
+	if authorizationEnabled, _ := operatorutils.IsModuleEnabled(ctx, cr, csmv1.Authorization); authorizationEnabled {
 		dpApply, err = AuthInjectDeployment(*dpApply, cr, op)
 		if err != nil {
 			return nil, fmt.Errorf("injecting auth into Observability metrics deployment: %v", err)
 		}
-		// add prefix to secretName of auth volumes
-		for i, v := range dpApply.Spec.Template.Spec.Volumes {
-			if utils.Contains(defaultAuthSecretsName, *v.Name) {
-				name := getNewAuthSecretName(cr.GetDriverType(), *v.Secret.SecretName)
-				dpApply.Spec.Template.Spec.Volumes[i].Secret.SecretName = &name
-			}
-		}
-		// add prefix to secretName of proxy token
-		for i, c := range dpApply.Spec.Template.Spec.Containers {
-			if *c.Name == "karavi-authorization-proxy" {
-				for j, env := range c.Env {
-					if (*env.Name == "ACCESS_TOKEN" || *env.Name == "REFRESH_TOKEN") && utils.Contains(defaultAuthSecretsName, *env.ValueFrom.SecretKeyRef.Name) {
-						name := getNewAuthSecretName(cr.GetDriverType(), *env.ValueFrom.SecretKeyRef.Name)
-						dpApply.Spec.Template.Spec.Containers[i].Env[j].ValueFrom.SecretKeyRef.Name = &name
-					}
-				}
-			}
-		}
 	}
-
 	return dpApply, nil
 }
 
 // PowerFlexMetrics - delete or update powerflex metrics objects
-func PowerFlexMetrics(ctx context.Context, isDeleting bool, op utils.OperatorConfig, cr csmv1.ContainerStorageModule, ctrlClient client.Client, k8sClient kubernetes.Interface) error {
+func PowerFlexMetrics(ctx context.Context, isDeleting bool, op operatorutils.OperatorConfig, cr csmv1.ContainerStorageModule, ctrlClient client.Client, k8sClient kubernetes.Interface) error {
 	log := logger.GetLogger(ctx)
 
 	powerflexMetricsObjects, err := getPowerFlexMetricsObject(op, cr)
@@ -617,18 +826,13 @@ func PowerFlexMetrics(ctx context.Context, isDeleting bool, op utils.OperatorCon
 		return fmt.Errorf("could not find deployment obj")
 	}
 
-	powerflexMetricsObjects, err = appendObservabilitySecrets(ctx, cr, powerflexMetricsObjects, ctrlClient, k8sClient)
-	if err != nil {
-		return fmt.Errorf("copy secrets from %s: %v", cr.Namespace, err)
-	}
-
 	for _, ctrlObj := range powerflexMetricsObjects {
 		if isDeleting {
-			if err := utils.DeleteObject(ctx, ctrlObj, ctrlClient); err != nil {
+			if err := operatorutils.DeleteObject(ctx, ctrlObj, ctrlClient); err != nil {
 				return err
 			}
 		} else {
-			if err := utils.ApplyCTRLObject(ctx, ctrlObj, ctrlClient); err != nil {
+			if err := operatorutils.ApplyCTRLObject(ctx, ctrlObj, ctrlClient); err != nil {
 				return err
 			}
 		}
@@ -644,7 +848,7 @@ func PowerFlexMetrics(ctx context.Context, isDeleting bool, op utils.OperatorCon
 		deploymentObj := &appsv1.Deployment{}
 		if err = ctrlClient.Get(ctx, deploymentKey, deploymentObj); err == nil {
 			if err = ctrlClient.Delete(ctx, deploymentObj); err != nil && !k8serrors.IsNotFound(err) {
-				return fmt.Errorf("error delete deployment: %v", err)
+				return fmt.Errorf("error deleting deployment: %v", err)
 			}
 		} else {
 			log.Infow("error getting deployment", "deploymentKey", deploymentKey)
@@ -660,7 +864,7 @@ func PowerFlexMetrics(ctx context.Context, isDeleting bool, op utils.OperatorCon
 }
 
 // getPowerFlexMetricsObject - get powerflex metrics yaml string
-func getPowerFlexMetricsObject(op utils.OperatorConfig, cr csmv1.ContainerStorageModule) ([]crclient.Object, error) {
+func getPowerFlexMetricsObject(op operatorutils.OperatorConfig, cr csmv1.ContainerStorageModule) ([]crclient.Object, error) {
 	obs, err := getObservabilityModule(cr)
 	if err != nil {
 		return nil, err
@@ -729,11 +933,11 @@ func getPowerFlexMetricsObject(op utils.OperatorConfig, cr csmv1.ContainerStorag
 	YamlString = strings.ReplaceAll(YamlString, OtelCollectorAddress, otelCollectorAddress)
 	YamlString = strings.ReplaceAll(YamlString, DriverDefaultReleaseName, cr.Name)
 
-	metricsObjects, err := utils.GetModuleComponentObj([]byte(YamlString))
+	metricsObjects, err := operatorutils.GetModuleComponentObj([]byte(YamlString))
 	if err != nil {
 		return nil, err
 	}
-	utils.SetContainerImage(metricsObjects, "karavi-metrics-powerflex", "karavi-metrics-powerflex", pflexImage)
+	operatorutils.SetContainerImage(metricsObjects, "karavi-metrics-powerflex", "karavi-metrics-powerflex", pflexImage)
 
 	return metricsObjects, nil
 }
@@ -748,72 +952,8 @@ func getObservabilityModule(cr csmv1.ContainerStorageModule) (csmv1.Module, erro
 	return csmv1.Module{}, fmt.Errorf("could not find observability module")
 }
 
-// appendObservabilitySecrets - append secrets from driver namespace including auth secrets, change their namespace to Observability Namespace
-func appendObservabilitySecrets(ctx context.Context, cr csmv1.ContainerStorageModule, objects []client.Object, ctrlClient client.Client, _ kubernetes.Interface) ([]client.Object, error) {
-	driverSecretName := strings.ReplaceAll(defaultSecretsName[cr.GetDriverType()], DriverDefaultReleaseName, cr.Name)
-
-	if cr.Spec.Driver.AuthSecret != "" {
-		driverSecretName = cr.Spec.Driver.AuthSecret
-	}
-
-	driverSecret, err := utils.GetSecret(ctx, driverSecretName, cr.GetNamespace(), ctrlClient)
-	if err != nil {
-		return objects, fmt.Errorf("reading secret [%s] error [%s]", driverSecret, err)
-	}
-
-	newSecret := createObsSecretObj(*driverSecret, utils.ObservabilityNamespace, driverSecret.Name)
-	objects = append(objects, newSecret)
-
-	// authorization secrets
-	if authorizationEnabled, auth := utils.IsModuleEnabled(ctx, cr, csmv1.Authorization); authorizationEnabled {
-		skipCertValid := true
-		for _, env := range auth.Components[0].Envs {
-			if env.Name == "SKIP_CERTIFICATE_VALIDATION" {
-				skipCertValid, err = strconv.ParseBool(env.Value)
-				if err != nil {
-					return objects, fmt.Errorf("%s is an invalid value for SKIP_CERTIFICATE_VALIDATION: %v", env.Value, err)
-				}
-				break
-			}
-		}
-		for _, s := range defaultAuthSecretsName {
-			if s == "proxy-server-root-certificate" && skipCertValid {
-				continue
-			}
-
-			found, err := utils.GetSecret(ctx, s, cr.GetNamespace(), ctrlClient)
-			if err != nil {
-				return objects, fmt.Errorf("reading secret [%s] error [%s]", s, err)
-			}
-			newSecretName := getNewAuthSecretName(cr.GetDriverType(), found.Name)
-			newAuthSecret := createObsSecretObj(*found, utils.ObservabilityNamespace, newSecretName)
-			objects = append(objects, newAuthSecret)
-		}
-	}
-
-	return objects, nil
-}
-
-// createObsSecretObj - Create new Observability Secret Object from driver Secret
-func createObsSecretObj(driverSecret corev1.Secret, newNameSpace, newSecretName string) *corev1.Secret {
-	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      newSecretName,
-			Namespace: newNameSpace,
-		},
-		TypeMeta: driverSecret.TypeMeta,
-		Data:     driverSecret.Data,
-		Type:     driverSecret.Type,
-	}
-}
-
-// getNewAuthSecretName - add prefix to secretName
-func getNewAuthSecretName(driverType csmv1.DriverType, secretName string) string {
-	return fmt.Sprintf("%s-%s", driverType, secretName)
-}
-
 // getIssuerCertServiceObs - gets cert manager issuer and certificate manifest for observability
-func getIssuerCertServiceObs(op utils.OperatorConfig, obs csmv1.Module, componentName string, cr csmv1.ContainerStorageModule) (string, error) {
+func getIssuerCertServiceObs(op operatorutils.OperatorConfig, obs csmv1.Module, componentName string, cr csmv1.ContainerStorageModule) (string, error) {
 	yamlString := ""
 	certificate := ""
 	privateKey := ""
@@ -850,19 +990,20 @@ func getIssuerCertServiceObs(op utils.OperatorConfig, obs csmv1.Module, componen
 	yamlString = strings.ReplaceAll(yamlString, ObservabilityCertificate, certificate)
 	yamlString = strings.ReplaceAll(yamlString, ObservabilityPrivateKey, privateKey)
 	yamlString = strings.ReplaceAll(yamlString, ObservabilitySecretPrefix, ComponentNameToSecretPrefix[componentName])
+	yamlString = strings.ReplaceAll(yamlString, CSMNameSpace, cr.Namespace)
 
 	return yamlString, nil
 }
 
 // IssuerCertServiceObs - apply and delete the observability issuer and certificate service
-func IssuerCertServiceObs(ctx context.Context, isDeleting bool, op utils.OperatorConfig, cr csmv1.ContainerStorageModule, ctrlClient crclient.Client) error {
+func IssuerCertServiceObs(ctx context.Context, isDeleting bool, op operatorutils.OperatorConfig, cr csmv1.ContainerStorageModule, ctrlClient crclient.Client) error {
 	obs, err := getObservabilityModule(cr)
 	if err != nil {
 		return err
 	}
 
 	for _, component := range obs.Components {
-		if (component.Name == ObservabilityOtelCollectorName && *(component.Enabled)) || (component.Name == ObservabilityTopologyName && *(component.Enabled)) {
+		if (component.Name == ObservabilityOtelCollectorName && *(component.Enabled)) || (component.Name == ObservabilityTopologyName && *(component.Enabled)) || (component.Name == ObservabilityMetricsPowerStoreName && *(component.Enabled)) {
 			yamlString, err := getIssuerCertServiceObs(op, obs, component.Name, cr)
 			if err != nil {
 				return err
@@ -878,7 +1019,7 @@ func IssuerCertServiceObs(ctx context.Context, isDeleting bool, op utils.Operato
 }
 
 // PowerMaxMetrics - delete or update powermax metrics objects
-func PowerMaxMetrics(ctx context.Context, isDeleting bool, op utils.OperatorConfig, cr csmv1.ContainerStorageModule, ctrlClient client.Client, k8sClient kubernetes.Interface) error {
+func PowerMaxMetrics(ctx context.Context, isDeleting bool, op operatorutils.OperatorConfig, cr csmv1.ContainerStorageModule, ctrlClient client.Client, k8sClient kubernetes.Interface) error {
 	log := logger.GetLogger(ctx)
 
 	powerMaxMetricsObjects, err := getPowerMaxMetricsObject(op, cr)
@@ -906,7 +1047,7 @@ func PowerMaxMetrics(ctx context.Context, isDeleting bool, op utils.OperatorConf
 	}
 
 	// Dynamic secret/configMap mounting is only supported in v2.14.0 and above
-	secretSupported, err := utils.MinVersionCheck(drivers.PowerMaxMountCredentialMinVersion, cr.Spec.Driver.ConfigVersion)
+	secretSupported, err := operatorutils.MinVersionCheck(drivers.PowerMaxMountCredentialMinVersion, cr.Spec.Driver.ConfigVersion)
 	if err != nil {
 		return err
 	}
@@ -925,18 +1066,13 @@ func PowerMaxMetrics(ctx context.Context, isDeleting bool, op utils.OperatorConf
 		}
 	}
 
-	powerMaxMetricsObjects, err = appendObservabilitySecrets(ctx, cr, powerMaxMetricsObjects, ctrlClient, k8sClient)
-	if err != nil {
-		return fmt.Errorf("copy secrets from %s: %v", cr.Namespace, err)
-	}
-
 	for _, ctrlObj := range powerMaxMetricsObjects {
 		if isDeleting {
-			if err := utils.DeleteObject(ctx, ctrlObj, ctrlClient); err != nil {
+			if err := operatorutils.DeleteObject(ctx, ctrlObj, ctrlClient); err != nil {
 				return err
 			}
 		} else {
-			if err := utils.ApplyCTRLObject(ctx, ctrlObj, ctrlClient); err != nil {
+			if err := operatorutils.ApplyCTRLObject(ctx, ctrlObj, ctrlClient); err != nil {
 				return err
 			}
 		}
@@ -952,7 +1088,7 @@ func PowerMaxMetrics(ctx context.Context, isDeleting bool, op utils.OperatorConf
 		deploymentObj := &appsv1.Deployment{}
 		if err = ctrlClient.Get(ctx, deploymentKey, deploymentObj); err == nil {
 			if err = ctrlClient.Delete(ctx, deploymentObj); err != nil && !k8serrors.IsNotFound(err) {
-				return fmt.Errorf("error delete deployment: %v", err)
+				return fmt.Errorf("error deleting deployment: %v", err)
 			}
 		} else {
 			log.Infow("error getting deployment", "deploymentKey", deploymentKey)
@@ -1023,7 +1159,7 @@ func setPowerMaxMetricsConfigMap(dp *confv1.DeploymentApplyConfiguration, cr csm
 }
 
 // getPowerMaxMetricsObject - get powermax metrics yaml string
-func getPowerMaxMetricsObject(op utils.OperatorConfig, cr csmv1.ContainerStorageModule) ([]crclient.Object, error) {
+func getPowerMaxMetricsObject(op operatorutils.OperatorConfig, cr csmv1.ContainerStorageModule) ([]crclient.Object, error) {
 	obs, err := getObservabilityModule(cr)
 	if err != nil {
 		return nil, err
@@ -1040,6 +1176,8 @@ func getPowerMaxMetricsObject(op utils.OperatorConfig, cr csmv1.ContainerStorage
 	maxConcurrentQueries := "10"
 	capacityEnabled := "true"
 	perfEnabled := "true"
+	topologyEnabled := "true"
+	topologyPollFrequency := "30"
 	capacityPollFrequency := "10"
 	perfPollFrequency := "10"
 	logFormat := "TEXT"
@@ -1064,6 +1202,10 @@ func getPowerMaxMetricsObject(op utils.OperatorConfig, cr csmv1.ContainerStorage
 					perfEnabled = env.Value
 				} else if strings.Contains(PmaxPerformancePollFreq, env.Name) {
 					perfPollFrequency = env.Value
+				} else if strings.Contains(PmaxTopologyMetricsEnabled, env.Name) {
+					topologyEnabled = env.Value
+				} else if strings.Contains(PmaxTopologyMetricsPollFrequency, env.Name) {
+					topologyPollFrequency = env.Value
 				} else if strings.Contains(ReverseProxyConfigMap, env.Name) {
 					revproxyConfigMap = env.Value
 				} else if strings.Contains(PmaxLogFormat, env.Name) {
@@ -1084,15 +1226,17 @@ func getPowerMaxMetricsObject(op utils.OperatorConfig, cr csmv1.ContainerStorage
 	YamlString = strings.ReplaceAll(YamlString, PmaxCapacityPollFreq, capacityPollFrequency)
 	YamlString = strings.ReplaceAll(YamlString, PmaxPerformanceMetricsEnabled, perfEnabled)
 	YamlString = strings.ReplaceAll(YamlString, PmaxPerformancePollFreq, perfPollFrequency)
+	YamlString = strings.ReplaceAll(YamlString, PmaxTopologyMetricsEnabled, topologyEnabled)
+	YamlString = strings.ReplaceAll(YamlString, PmaxTopologyMetricsPollFrequency, topologyPollFrequency)
 	YamlString = strings.ReplaceAll(YamlString, OtelCollectorAddress, otelCollectorAddress)
 	YamlString = strings.ReplaceAll(YamlString, ReverseProxyConfigMap, revproxyConfigMap)
 	YamlString = strings.ReplaceAll(YamlString, DriverDefaultReleaseName, cr.Name)
 
-	metricsObjects, err := utils.GetModuleComponentObj([]byte(YamlString))
+	metricsObjects, err := operatorutils.GetModuleComponentObj([]byte(YamlString))
 	if err != nil {
 		return nil, err
 	}
-	utils.SetContainerImage(metricsObjects, "karavi-metrics-powermax", "karavi-metrics-powermax", pmaxImage)
+	operatorutils.SetContainerImage(metricsObjects, "karavi-metrics-powermax", "karavi-metrics-powermax", pmaxImage)
 
 	return metricsObjects, nil
 }

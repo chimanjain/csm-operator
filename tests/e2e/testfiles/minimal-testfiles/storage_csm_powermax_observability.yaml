@@ -6,7 +6,7 @@ metadata:
 spec:
   driver:
     csiDriverType: "powermax"
-    configVersion: v2.14.0
+    configVersion: v2.15.0
     forceRemoveDriver: true
     common:
       envs:
@@ -20,8 +20,6 @@ spec:
     - name: observability
       enabled: true
       components:
-        - name: topology
-          enabled: true
         - name: otel-collector
           enabled: true
         - name: cert-manager

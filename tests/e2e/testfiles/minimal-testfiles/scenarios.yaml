@@ -13,15 +13,78 @@
     - "Validate custom resource [1]"
     - "Validate [powerstore] driver from CR [1] is installed"
     - "Validate [powerstore] driver spec from CR [1]"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powerstore] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-pstore -v 1 -p 1
+
+- scenario: "Install Powerstore Driver (Minimal, With Authorization v2)"
+  paths:
+    - "testfiles/authorization-templates/storage_csm_authorization_v2_proxy_server_k8s_secret.yaml"
+    - "../../operatorconfig/moduleconfig/authorization/v2.3.0/authorization-crds.yaml"
+    - "testfiles/minimal-testfiles/storage_csm_powerstore_auth.yaml"
+    - "testfiles/authorization-templates/storage_csm_authorization_v2_template_k8s_secret.yaml"
+  tags:
+    - "authorizationproxyserver"
+    - "authorization"
+    - "powerstore"
+  steps:
+    - "Given an environment with k8s or openshift, and CSM operator installed"
+    - "Install Authorization CRDs [2]"
+    - "Create [authorization-proxy-server] prerequisites from CR [1]"
+    - "Create Secret from file [testfiles/authorization-templates/storage_csm_authorization_k8s_secret.yaml] name [secret-1] in namespace [authorization] for [pstore]"
+    # - "Create resource with template [testfiles/authorization-templates/storage_csm_authorization_secret_provider_class.yaml] for [pstoreAuthCRs]"
+    - "Apply custom resource [1]"
+    - "Validate [authorization-proxy-server] module from CR [1] is installed"
+    - "Configure authorization-proxy-server with template [4] for [powerstore] for CR [1]"
+    - "Create StorageClass with template [testfiles/powerstore-templates/powerstore-storageclass-template.yaml] for [pstore]"
+    - "Create Secret with template [testfiles/powerstore-templates/csm-authorization-config.json] name [karavi-authorization-config] in namespace [test-powerstore] for [pstoreAuthSidecar]"
+    - "Create Secret with template [testfiles/powerstore-templates/powerstore-secret-template-auth.yaml] name [test-powerstore-config] in namespace [test-powerstore] for [pstoreAuth]"
+    - "Apply custom resource [3]"
+    - "Validate custom resource [3]"
+    - "Validate [powerstore] driver from CR [3] is installed"
+    - "Validate [authorization] module from CR [3] is installed"
+    # cleanup
+    - "Enable forceRemoveDriver on CR [3]"
+    - "Delete custom resource [3]"
+    - "Validate [powerstore] driver from CR [3] is not installed"
+    - "Delete Authorization CRs for [powerstore]"
+    - "Delete custom resource [1]"
+    - "Validate [authorization] module pods from CR [1] is not installed"
+    - "Delete Authorization CRDs [2]"
+
+- scenario: "Install Powerstore Driver (Minimal, With Authorization v2 and Kubernetes Secret)"
+  paths:
+    - "testfiles/authorization-templates/storage_csm_authorization_v2_proxy_server_k8s_secret.yaml"
+    - "../../operatorconfig/moduleconfig/authorization/v2.3.0/authorization-crds.yaml"
+    - "testfiles/minimal-testfiles/storage_csm_powerstore_auth.yaml"
+  tags:
+    - "authorizationproxyserver"
+    - "authorization"
+    - "powerstore"
+  steps:
+    - "Given an environment with k8s or openshift, and CSM operator installed"
+    - "Install Authorization CRDs [2]"
+    - "Create [authorization-proxy-server] prerequisites from CR [1]"
+    - "Create Secret from file [testfiles/authorization-templates/storage_csm_authorization_k8s_secret.yaml] name [secret-1] in namespace [authorization] for [pstore]"
+    - "Apply custom resource [1]"
+    - "Validate [authorization-proxy-server] module from CR [1] is installed"
+    - "Configure authorization-proxy-server for [powerstore] for CR [1]"
+    - "Create StorageClass with template [testfiles/powerstore-templates/powerstore-storageclass-template.yaml] for [pstore]"
+    - "Create Secret with template [testfiles/powerstore-templates/csm-authorization-config.json] name [karavi-authorization-config] in namespace [powerstore] for [pstoreAuthSidecar]"
+    - "Create resource with template [testfiles/powerstore-templates/powerstore-secret-template.yaml] for [pstoreCreds]"
+    - "Apply custom resource [3]"
+    - "Validate custom resource [3]"
+    - "Validate [powerstore] driver from CR [3] is installed"
+    - "Validate [authorization] module from CR [3] is installed"
+    # cleanup
+    - "Enable forceRemoveDriver on CR [3]"
+    - "Delete custom resource [3]"
+    - "Validate [powerstore] driver from CR [3] is not installed"
+    - "Delete Authorization CRs for [powerstore]"
+    - "Delete custom resource [1]"
+    - "Validate [authorization] module pods from CR [1] is not installed"
+    - "Delete Authorization CRDs [2]"
 
 - scenario: "Install PowerStore Driver with Shared NFS (Minimal, Standalone)"
   paths:
@@ -37,7 +100,6 @@
     - "Validate custom resource [1]"
     - "Validate [powerstore] driver from CR [1] is installed"
     - "Validate [powerstore] driver spec from CR [1]"
-    - "Run [Cert CSI]"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
@@ -46,9 +108,6 @@
     - name: Is NFS Server Running
       run:
         - /bin/bash scripts/verify_nfs.sh
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-pstore-sharednfs -v 1 -p 1
 
 - scenario: "Install PowerStore Driver (Minimal, With Resiliency)"
   paths:
@@ -64,15 +123,10 @@
     - "Validate custom resource [1]"
     - "Validate [powerstore] driver from CR [1] is installed"
     - "Validate [resiliency] module from CR [1] is installed"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powerstore] driver from CR [1] is not installed"
-  customTest:
-    - name: CustomTest
-      run:
-        - echo "no current test for resiliency"
 
 - scenario: "Install PowerStore Driver (Minimal, Standalone), Enable Resiliency"
   paths:
@@ -112,15 +166,10 @@
     - "Validate custom resource [1]"
     - "Validate [1] CSM has forceRemoveDriver set to true"
     - "Validate [powerstore] driver from CR [1] is installed"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powerstore] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-pstore -v 1 -p 1
 
 - scenario: "Install PowerStore Driver (Minimal, With false forceRemoveDriver)"
   paths:
@@ -135,7 +184,6 @@
     - "Validate custom resource [1]"
     - "Validate [1] CSM has forceRemoveDriver set to false"
     - "Validate [powerstore] driver from CR [1] is installed"
-    - "Run custom test"
     - "Delete custom resource [1]"
     - "Validate [powerstore] driver from CR [1] is installed"
     # cleanup
@@ -144,10 +192,6 @@
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powerstore] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-pstore -v 1 -p 1
 
 - scenario: "Install Unity Driver (Minimal, Standalone)"
   paths:
@@ -162,15 +206,10 @@
     - "Validate custom resource [1]"
     - "Validate [unity] driver from CR [1] is installed"
     - "Validate [unity] driver spec from CR [1]"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [unity] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-unity -v 1 -p 1
 
 - scenario: "Install Unity Driver (Minimal, With false forceRemoveDriver)"
   paths:
@@ -185,7 +224,6 @@
     - "Validate custom resource [1]"
     - "Validate [1] CSM has forceRemoveDriver set to false"
     - "Validate [unity] driver from CR [1] is installed"
-    - "Run custom test"
     - "Delete custom resource [1]"
     - "Validate [unity] driver from CR [1] is installed"
     # cleanup
@@ -194,10 +232,6 @@
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [unity] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-unity -v 1 -p 1
 
 - scenario: "Install Unity Driver (Minimal, With no forceRemoveDriver)"
   paths:
@@ -212,15 +246,10 @@
     - "Validate custom resource [1]"
     - "Validate [1] CSM has forceRemoveDriver set to true"
     - "Validate [unity] driver from CR [1] is installed"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [unity] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-unity -v 1 -p 1
 
 - scenario: "Install PowerFlex Driver (Minimal, Standalone)"
   paths:
@@ -236,15 +265,10 @@
     - "Validate custom resource [1]"
     - "Validate [powerflex] driver from CR [1] is installed"
     - "Validate [powerflex] driver spec from CR [1]"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powerflex] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-vxflexos -v 1 -p 1
 
 - scenario: "Install PowerFlex Driver (Minimal, With no forceRemoveDriver)"
   paths:
@@ -259,15 +283,10 @@
     - "Validate custom resource [1]"
     - "Validate [1] CSM has forceRemoveDriver set to true"
     - "Validate [powerflex] driver from CR [1] is installed"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powerflex] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-vxflexos -v 1 -p 1
 
 - scenario: "Install PowerFlex Driver (Minimal, With false forceRemoveDriver)"
   paths:
@@ -282,7 +301,6 @@
     - "Validate custom resource [1]"
     - "Validate [1] CSM has forceRemoveDriver set to false"
     - "Validate [powerflex] driver from CR [1] is installed"
-    - "Run custom test"
     - "Delete custom resource [1]"
     - "Validate [powerflex] driver from CR [1] is installed"
     # cleanup
@@ -291,10 +309,6 @@
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powerflex] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-vxflexos -v 1 -p 1
 
 - scenario: "Install PowerFlex Driver (Minimal, With Resiliency)"
   paths:
@@ -310,15 +324,10 @@
     - "Apply custom resource [1]"
     - "Validate [powerflex] driver from CR [1] is installed"
     - "Validate [resiliency] module from CR [1] is installed"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powerflex] driver from CR [1] is not installed"
-  customTest:
-    - name: CustomTest
-      run:
-        - echo "no current test for resiliency"
 
 - scenario: "Install PowerFlex Driver (Minimal, Standalone), Enable/Disable Resiliency"
   paths:
@@ -345,11 +354,11 @@
     - "Delete custom resource [1]"
     - "Validate [powerflex] driver from CR [1] is not installed"
 
-- scenario: "Install PowerFlex Driver (Minimal, With Authorization V2)"
+- scenario: "Install PowerFlex Driver (Minimal, With Authorization V2 and Kubernetes Secret)"
   paths:
-    - "testfiles/authorization-templates/storage_csm_authorization_v2_proxy_server.yaml"
+    - "testfiles/authorization-templates/storage_csm_authorization_v2_proxy_server_k8s_secret.yaml"
     - "testfiles/minimal-testfiles/storage_csm_powerflex_auth.yaml"
-    - "testfiles/authorization-templates/storage_csm_authorization_v2_crds.yaml"
+    - "../../operatorconfig/moduleconfig/authorization/v2.3.0/authorization-crds.yaml"
   tags:
     - "authorization"
     - "authorizationproxyserver"
@@ -358,6 +367,7 @@
     - "Given an environment with k8s or openshift, and CSM operator installed"
     - "Install Authorization CRDs [3]"
     - "Create [authorization-proxy-server] prerequisites from CR [1]"
+    - "Create Secret from file [testfiles/authorization-templates/storage_csm_authorization_k8s_secret.yaml] name [secret-1] in namespace [authorization] for [pflex]"
     - "Apply custom resource [1]"
     - "Validate [authorization-proxy-server] module from CR [1] is installed"
     - "Configure authorization-proxy-server for [powerflex] for CR [1]"
@@ -369,7 +379,6 @@
     - "Validate custom resource [2]"
     - "Validate [powerflex] driver from CR [2] is installed"
     - "Validate [authorization] module from CR [2] is installed"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [2]"
     - "Delete custom resource [2]"
@@ -378,10 +387,40 @@
     - "Delete custom resource [1]"
     - "Validate [authorization] module pods from CR [1] is not installed"
     - "Delete Authorization CRDs [3]"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-vxflexos -v 1 -p 1
+
+- scenario: "Install PowerFlex Driver (Minimal, With Authorization V2)"
+  paths:
+    - "testfiles/authorization-templates/storage_csm_authorization_v2_proxy_server.yaml"
+    - "testfiles/minimal-testfiles/storage_csm_powerflex_auth.yaml"
+    - "../../operatorconfig/moduleconfig/authorization/v2.3.0/authorization-crds.yaml"
+  tags:
+    - "authorization"
+    - "authorizationproxyserver"
+    # - "powerflex"
+  steps:
+    - "Given an environment with k8s or openshift, and CSM operator installed"
+    - "Install Authorization CRDs [3]"
+    - "Create [authorization-proxy-server] prerequisites from CR [1]"
+    - "Create resource with template [testfiles/authorization-templates/storage_csm_authorization_secret_provider_class.yaml] for [pflexAuthCRs]"
+    - "Apply custom resource [1]"
+    - "Validate [authorization-proxy-server] module from CR [1] is installed"
+    - "Configure authorization-proxy-server for [powerflex] for CR [1]"
+    - "Create StorageClass with template [testfiles/powerflex-templates/powerflex-storageclass-template.yaml] for [pflex]"
+    - "Create Secret with template [testfiles/powerflex-templates/csm-authorization-config.json] name [karavi-authorization-config] in namespace [test-vxflexos] for [pflexAuthSidecar]"
+    - "Create Secret with template [testfiles/powerflex-templates/powerflex-secret-template.yaml] name [test-vxflexos-config] in namespace [test-vxflexos] for [pflex]"
+    - "Create Secret with template [testfiles/powerflex-templates/powerflex-secret-template.yaml] name [test-vxflexos-config] in namespace [test-vxflexos] for [pflexAuth]"
+    - "Apply custom resource [2]"
+    - "Validate custom resource [2]"
+    - "Validate [powerflex] driver from CR [2] is installed"
+    - "Validate [authorization] module from CR [2] is installed"
+    # cleanup
+    - "Enable forceRemoveDriver on CR [2]"
+    - "Delete custom resource [2]"
+    - "Validate [powerflex] driver from CR [2] is not installed"
+    - "Delete Authorization CRs for [powerflex]"
+    - "Delete custom resource [1]"
+    - "Validate [authorization] module pods from CR [1] is not installed"
+    - "Delete Authorization CRDs [3]"
 
 - scenario: "Install PowerFlex Driver (Minimal, With Observability)"
   paths:
@@ -396,15 +435,10 @@
     - "Apply custom resource [1]"
     - "Validate [powerflex] driver from CR [1] is installed"
     - "Validate [observability] module from CR [1] is installed"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powerflex] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-vxflexos -v 1 -p 1
 
 - scenario: "Install PowerFlex Driver (Minimal, With Observability and Custom Cert for Otel-Collector)"
   paths:
@@ -438,15 +472,10 @@
     - "Validate custom resource [1]"
     - "Validate [powerscale] driver from CR [1] is installed"
     - "Validate [powerscale] driver spec from CR [1]"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powerscale] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-isilon -v 1 -p 1
 
 - scenario: "Install PowerScale Driver (Minimal, With no forceRemoveDriver)"
   paths:
@@ -463,15 +492,10 @@
     - "Validate custom resource [1]"
     - "Validate [1] CSM has forceRemoveDriver set to true"
     - "Validate [powerscale] driver from CR [1] is installed"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powerscale] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-isilon -v 1 -p 1
 
 - scenario: "Install PowerScale Driver (Minimal, With false forceRemoveDriver)"
   paths:
@@ -488,7 +512,6 @@
     - "Validate custom resource [1]"
     - "Validate [1] CSM has forceRemoveDriver set to false"
     - "Validate [powerscale] driver from CR [1] is installed"
-    - "Run custom test"
     - "Delete custom resource [1]"
     - "Validate [powerscale] driver from CR [1] is installed"
     # cleanup
@@ -497,10 +520,6 @@
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powerscale] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-isilon -v 1 -p 1
 
 - scenario: "Install PowerScale Driver (Minimal, Standalone), Enable/Disable Resiliency"
   paths:
@@ -542,15 +561,10 @@
     - "Validate custom resource [1]"
     - "Validate [powerscale] driver from CR [1] is installed"
     - "Validate [resiliency] module from CR [1] is installed"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powerscale] driver from CR [1] is not installed"
-  customTest:
-    - name: CustomTest
-      run:
-        - echo "no current test for resiliency"
 
 - scenario: "Install PowerScale Driver (Minimal, With Replication)"
   paths:
@@ -567,15 +581,10 @@
     - "Validate custom resource [1]"
     - "Validate [powerscale] driver from CR [1] is installed"
     - "Validate [replication] module from CR [1] is installed"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powerscale] driver from CR [1] is not installed"
-  customTest:
-    - name: HelloWorld
-      run:
-        - echo "no current test implemented for replication"
 
 - scenario: "Install PowerScale Driver (Minimal, Standalone), Enable/Disable Replication"
   paths:
@@ -596,7 +605,6 @@
     - "Enable [replication] module from CR [2]"
     - "Validate [powerscale] driver from CR [2] is installed"
     - "Validate [replication] module from CR [2] is installed"
-    - "Run custom test"
     - "Disable [replication] module from CR [1]"
     - "Validate [replication] driver from CR [1] is installed"
     - "Validate [replication] module from CR [1] is not installed"
@@ -604,10 +612,6 @@
     - "Enable forceRemoveDriver on CR [2]"
     - "Delete custom resource [2]"
     - "Validate [powerscale] driver from CR [2] is not installed"
-  customTest:
-    - name: HelloWorld
-      run:
-        - echo "no current test implemented for replication"
 
 - scenario: "Uninstall PowerScale Driver (Minimal)"
   paths:
@@ -669,11 +673,11 @@
     - "Delete custom resource [1]"
     - "Validate [powerscale] driver from CR [1] is not installed"
 
-- scenario: "Install PowerScale Driver (Minimal, With Authorization V2)"
+- scenario: "Install PowerScale Driver (Minimal, With Authorization V2 and Kubernetes Secret)"
   paths:
-    - "testfiles/authorization-templates/storage_csm_authorization_v2_proxy_server.yaml"
+    - "testfiles/authorization-templates/storage_csm_authorization_v2_proxy_server_k8s_secret.yaml"
     - "testfiles/minimal-testfiles/storage_csm_powerscale_auth2.0.yaml"
-    - "testfiles/authorization-templates/storage_csm_authorization_v2_crds.yaml"
+    - "../../operatorconfig/moduleconfig/authorization/v2.3.0/authorization-crds.yaml"
   tags:
     - "authorization"
     - "authorizationproxyserver"
@@ -682,6 +686,7 @@
     - "Given an environment with k8s or openshift, and CSM operator installed"
     - "Install Authorization CRDs [3]"
     - "Create [authorization-proxy-server] prerequisites from CR [1]"
+    - "Create Secret from file [testfiles/authorization-templates/storage_csm_authorization_k8s_secret.yaml] name [secret-1] in namespace [authorization] for [pscale]"
     - "Apply custom resource [1]"
     - "Validate [authorization-proxy-server] module from CR [1] is installed"
     - "Configure authorization-proxy-server for [powerscale] for CR [1]"
@@ -693,7 +698,6 @@
     - "Validate custom resource [2]"
     - "Validate [powerscale] driver from CR [2] is installed"
     - "Validate [authorization] module from CR [2] is installed"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [2]"
     - "Delete custom resource [2]"
@@ -702,10 +706,40 @@
     - "Delete custom resource [1]"
     - "Validate [authorization] module pods from CR [1] is not installed"
     - "Delete Authorization CRDs [3]"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-isilon -v 1 -p 1
+
+- scenario: "Install PowerScale Driver (Minimal, With Authorization V2)"
+  paths:
+    - "testfiles/authorization-templates/storage_csm_authorization_v2_proxy_server.yaml"
+    - "testfiles/minimal-testfiles/storage_csm_powerscale_auth2.0.yaml"
+    - "../../operatorconfig/moduleconfig/authorization/v2.3.0/authorization-crds.yaml"
+  tags:
+    - "authorization"
+    - "authorizationproxyserver"
+    - "powerscale"
+  steps:
+    - "Given an environment with k8s or openshift, and CSM operator installed"
+    - "Install Authorization CRDs [3]"
+    - "Create [authorization-proxy-server] prerequisites from CR [1]"
+    - "Create resource with template [testfiles/authorization-templates/storage_csm_authorization_secret_provider_class.yaml] for [pscaleAuthCRs]"
+    - "Apply custom resource [1]"
+    - "Validate [authorization-proxy-server] module from CR [1] is installed"
+    - "Configure authorization-proxy-server for [powerscale] for CR [1]"
+    - "Create Secret with template [testfiles/minimal-testfiles/empty-secret.yaml] name [isilon-certs-0] in namespace [isilon] for [pscale]"
+    - "Create StorageClass with template [testfiles/powerscale-templates/powerscale-storageclass-template.yaml] for [pscale]"
+    - "Create Secret with template [testfiles/powerscale-templates/powerscale-auth-secret-template.yaml] name [isilon-creds] in namespace [isilon] for [pscaleAuth]"
+    - "Create Secret with template [testfiles/powerscale-templates/karavi-authorization-config.json] name [karavi-authorization-config] in namespace [isilon] for [pscaleAuthSidecar]"
+    - "Apply custom resource [2]"
+    - "Validate custom resource [2]"
+    - "Validate [powerscale] driver from CR [2] is installed"
+    - "Validate [authorization] module from CR [2] is installed"
+    # cleanup
+    - "Enable forceRemoveDriver on CR [2]"
+    - "Delete custom resource [2]"
+    - "Validate [powerscale] driver from CR [2] is not installed"
+    - "Delete Authorization CRs for [powerscale]"
+    - "Delete custom resource [1]"
+    - "Validate [authorization] module pods from CR [1] is not installed"
+    - "Delete Authorization CRDs [3]"
 
 - scenario: "Install Powerflex Driver (Minimal, With Replication)"
   paths:
@@ -721,15 +755,10 @@
     - "Apply custom resource [1]"
     - "Validate [powerflex] driver from CR [1] is installed"
     - "Validate [replication] module from CR [1] is installed"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powerflex] driver from CR [1] is not installed"
-  customTest:
-    - name: HelloWorld
-      run:
-        - echo "no current test implemented for replication"
 
 - scenario: "Install PowerMax Driver (Minimal, Standalone)"
   paths:
@@ -746,14 +775,9 @@
     - "Validate custom resource [1]"
     - "Validate [powermax] driver from CR [1] is installed"
     - "Validate [powermax] driver spec from CR [1]"
-    - "Run custom test"
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powermax] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-pmax -v 1 -p 1
 
 - scenario: "Install PowerMax Driver without powermax-array-config.yaml (Minimal, Standalone)"
   paths:
@@ -769,14 +793,9 @@
     - "Validate custom resource [1]"
     - "Validate [powermax] driver from CR [1] is installed"
     - "Validate [powermax] driver spec from CR [1]"
-    - "Run custom test"
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powermax] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-pmax -v 1 -p 1
 
 - scenario: "Install PowerMax Driver with Mount Credentials (Minimal)"
   paths:
@@ -792,14 +811,9 @@
     - "Validate custom resource [1]"
     - "Validate [powermax] driver from CR [1] is installed"
     - "Validate [powermax] driver spec from CR [1]"
-    - "Run custom test"
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powermax] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-pmax -v 1 -p 1
 
 - scenario: "Install PowerMax Driver without powermax-array-config.yaml with Mount Credentials (Minimal)"
   paths:
@@ -814,14 +828,9 @@
     - "Validate custom resource [1]"
     - "Validate [powermax] driver from CR [1] is installed"
     - "Validate [powermax] driver spec from CR [1]"
-    - "Run custom test"
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powermax] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-pmax -v 1 -p 1
 
 - scenario: "Install PowerMax Driver with Mount Credentials (Minimal), Enable Observability"
   paths:
@@ -841,14 +850,9 @@
     - "Validate [powermax] driver from CR [1] is installed"
     - "Validate [observability] module from CR [1] is installed"
     - "Validate [powermax] driver spec from CR [1]"
-    - "Run custom test"
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powermax] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-pmax -v 1 -p 1
 
 - scenario: "Install PowerMax Driver without powermax-array-config with Mount Credentials (Minimal), Enable Observability"
   paths:
@@ -867,14 +871,9 @@
     - "Validate [powermax] driver from CR [1] is installed"
     - "Validate [observability] module from CR [1] is installed"
     - "Validate [powermax] driver spec from CR [1]"
-    - "Run custom test"
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powermax] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-pmax -v 1 -p 1
 
 - scenario: "Install PowerMax Driver (Minimal, With no forceRemoveDriver)"
   paths:
@@ -891,14 +890,9 @@
     - "Validate custom resource [1]"
     - "Validate [1] CSM has forceRemoveDriver set to true"
     - "Validate [powermax] driver from CR [1] is installed"
-    - "Run custom test"
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powermax] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-pmax -v 1 -p 1
 
 - scenario: "Install PowerMax Driver without powermax-array-config.yaml (Minimal, With no forceRemoveDriver)"
   paths:
@@ -914,14 +908,9 @@
     - "Validate custom resource [1]"
     - "Validate [1] CSM has forceRemoveDriver set to true"
     - "Validate [powermax] driver from CR [1] is installed"
-    - "Run custom test"
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powermax] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-pmax -v 1 -p 1
 
 - scenario: "Install PowerMax Driver (Minimal, With false forceRemoveDriver)"
   paths:
@@ -939,7 +928,6 @@
     - "Validate custom resource [1]"
     - "Validate [1] CSM has forceRemoveDriver set to false"
     - "Validate [powermax] driver from CR [1] is installed"
-    - "Run custom test"
     - "Delete custom resource [1]"
     - "Validate [powermax] driver from CR [1] is installed"
     # cleanup
@@ -948,10 +936,7 @@
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powermax] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-pmax -v 1 -p 1
+
 - scenario: "Install PowerMax Driver without powermax-array-config (Minimal, With false forceRemoveDriver)"
   paths:
     - "testfiles/minimal-testfiles/storage_csm_powermax_with_false_forceRemoveDriver.yaml"
@@ -967,7 +952,6 @@
     - "Validate custom resource [1]"
     - "Validate [1] CSM has forceRemoveDriver set to false"
     - "Validate [powermax] driver from CR [1] is installed"
-    - "Run custom test"
     - "Delete custom resource [1]"
     - "Validate [powermax] driver from CR [1] is installed"
     # cleanup
@@ -976,10 +960,6 @@
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powermax] driver from CR [1] is not installed"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-pmax -v 1 -p 1
 
 - scenario: "Install PowerMax Driver (Minimal, With Observability)"
   paths:
@@ -1025,7 +1005,7 @@
 - scenario: "Install Powermax Driver (Minimal, With Authorization v2)"
   paths:
     - "testfiles/authorization-templates/storage_csm_authorization_v2_proxy_server.yaml"
-    - "testfiles/authorization-templates/storage_csm_authorization_v2_crds.yaml"
+    - "../../operatorconfig/moduleconfig/authorization/v2.3.0/authorization-crds.yaml"
     - "testfiles/minimal-testfiles/storage_csm_powermax_reverseproxy_authorization_v2.yaml"
   tags:
     - "authorizationproxyserver"
@@ -1035,6 +1015,7 @@
     - "Given an environment with k8s or openshift, and CSM operator installed"
     - "Install Authorization CRDs [2]"
     - "Create [authorization-proxy-server] prerequisites from CR [1]"
+    - "Create resource with template [testfiles/authorization-templates/storage_csm_authorization_secret_provider_class.yaml] for [pstoreAuthCRs]"
     - "Apply custom resource [1]"
     - "Validate [authorization-proxy-server] module from CR [1] is installed"
     - "Configure authorization-proxy-server for [powermax] for CR [1]"
@@ -1047,7 +1028,6 @@
     - "Validate custom resource [3]"
     - "Validate [powermax] driver from CR [3] is installed"
     - "Validate [authorization] module from CR [3] is installed"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [3]"
     - "Delete custom resource [3]"
@@ -1056,15 +1036,11 @@
     - "Delete custom resource [1]"
     - "Validate [authorization] module pods from CR [1] is not installed"
     - "Delete Authorization CRDs [2]"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-pmax  -v 1 -p 1
 
-- scenario: "Install Powermax Driver without powermax-array-config.yaml (Minimal, With Authorization v2)"
+- scenario: "Install Powermax Driver (Minimal, With Authorization v2 and Kubernetes Secret)"
   paths:
-    - "testfiles/authorization-templates/storage_csm_authorization_v2_proxy_server.yaml"
-    - "testfiles/authorization-templates/storage_csm_authorization_v2_crds.yaml"
+    - "testfiles/authorization-templates/storage_csm_authorization_v2_proxy_server_k8s_secret.yaml"
+    - "../../operatorconfig/moduleconfig/authorization/v2.3.0/authorization-crds.yaml"
     - "testfiles/minimal-testfiles/storage_csm_powermax_reverseproxy_authorization_v2.yaml"
   tags:
     - "authorizationproxyserver"
@@ -1074,6 +1050,42 @@
     - "Given an environment with k8s or openshift, and CSM operator installed"
     - "Install Authorization CRDs [2]"
     - "Create [authorization-proxy-server] prerequisites from CR [1]"
+    - "Create Secret from file [testfiles/authorization-templates/storage_csm_authorization_k8s_secret.yaml] name [secret-1] in namespace [authorization] for [pmax]"
+    - "Apply custom resource [1]"
+    - "Validate [authorization-proxy-server] module from CR [1] is installed"
+    - "Configure authorization-proxy-server for [powermax] for CR [1]"
+    - "Create StorageClass with template [testfiles/powermax-templates/powermax-storageclass-template.yaml] for [pmax]"
+    - "Create Secret with template [testfiles/powermax-templates/csm-authorization-config.json] name [karavi-authorization-config] in namespace [powermax] for [pmaxAuthSidecar]"
+    - "Create resource with template [testfiles/powermax-templates/powermax-secret-template.yaml] for [pmaxCreds]"
+    - "Create resource with template [testfiles/powermax-templates/powermax-array-config.yaml] for [pmaxArrayConfig]"
+    - "Create ConfigMap with template [testfiles/powermax-templates/powermax_reverse_proxy_config_auth.yaml] name [powermax-reverseproxy-config] in namespace [powermax] for [pmaxReverseProxy]"
+    - "Apply custom resource [3]"
+    - "Validate custom resource [3]"
+    - "Validate [powermax] driver from CR [3] is installed"
+    - "Validate [authorization] module from CR [3] is installed"
+    # cleanup
+    - "Enable forceRemoveDriver on CR [3]"
+    - "Delete custom resource [3]"
+    - "Validate [powermax] driver from CR [3] is not installed"
+    - "Delete Authorization CRs for [powermax]"
+    - "Delete custom resource [1]"
+    - "Validate [authorization] module pods from CR [1] is not installed"
+    - "Delete Authorization CRDs [2]"
+
+- scenario: "Install Powermax Driver without powermax-array-config.yaml (Minimal, With Authorization v2)"
+  paths:
+    - "testfiles/authorization-templates/storage_csm_authorization_v2_proxy_server.yaml"
+    - "../../operatorconfig/moduleconfig/authorization/v2.3.0/authorization-crds.yaml"
+    - "testfiles/minimal-testfiles/storage_csm_powermax_reverseproxy_authorization_v2.yaml"
+  tags:
+    - "authorizationproxyserver"
+    - "authorization"
+    - "powermax"
+  steps:
+    - "Given an environment with k8s or openshift, and CSM operator installed"
+    - "Install Authorization CRDs [2]"
+    - "Create [authorization-proxy-server] prerequisites from CR [1]"
+    - "Create resource with template [testfiles/authorization-templates/storage_csm_authorization_secret_provider_class.yaml] for [pmaxAuthCRs]"
     - "Apply custom resource [1]"
     - "Validate [authorization-proxy-server] module from CR [1] is installed"
     - "Configure authorization-proxy-server for [powermax] for CR [1]"
@@ -1085,7 +1097,6 @@
     - "Validate custom resource [3]"
     - "Validate [powermax] driver from CR [3] is installed"
     - "Validate [authorization] module from CR [3] is installed"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [3]"
     - "Delete custom resource [3]"
@@ -1094,10 +1105,6 @@
     - "Delete custom resource [1]"
     - "Validate [authorization] module pods from CR [1] is not installed"
     - "Delete Authorization CRDs [2]"
-  customTest:
-    - name: Cert CSI
-      run:
-        - cert-csi test provisioning --sc op-e2e-pmax  -v 1 -p 1
 
 - scenario: "Install Powermax Driver (Minimal, Standalone), Enable Resiliency"
   paths:
@@ -1209,15 +1216,10 @@
     - "Validate custom resource [1]"
     - "Validate [powermax] driver from CR [1] is installed"
     - "Validate [replication] module from CR [1] is installed"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powermax] driver from CR [1] is not installed"
-  customTest:
-    - name: HelloWorld
-      run:
-        - echo "no current test implemented for replication"
 
 - scenario: "Install Powermax Driver without powermax-array-config.yaml (Minimal, With Replication)"
   paths:
@@ -1234,12 +1236,7 @@
     - "Validate custom resource [1]"
     - "Validate [powermax] driver from CR [1] is installed"
     - "Validate [replication] module from CR [1] is installed"
-    - "Run custom test"
     # cleanup
     - "Enable forceRemoveDriver on CR [1]"
     - "Delete custom resource [1]"
     - "Validate [powermax] driver from CR [1] is not installed"
-  customTest:
-    - name: HelloWorld
-      run:
-        - echo "no current test implemented for replication"

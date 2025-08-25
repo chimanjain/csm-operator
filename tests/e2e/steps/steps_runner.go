@@ -44,10 +44,12 @@ func StepRunnerInit(runner *Runner, ctrlClient client.Client, clientSet *kuberne
 	runner.addStep(`^Install \[([^"]*)\]$`, step.installThirdPartyModule)
 	runner.addStep(`^Uninstall \[([^"]*)\]$`, step.uninstallThirdPartyModule)
 	runner.addStep(`^Apply custom resource \[(\d+)\]$`, step.applyCustomResource)
+	runner.addStep(`^Apply Authorization with Conjur custom resource \[(\d+)\]$`, step.applyAuthorizationConjur)
 	runner.addStep(`^Validate \[(\d+)\] CSM has forceRemoveDriver set to true$`, step.validateForceRemoveDriverEnabled)
 	runner.addStep(`^Validate \[(\d+)\] CSM has forceRemoveDriver set to false$`, step.validateForceRemoveDriverDisabled)
 	runner.addStep(`^Upgrade from custom resource \[(\d+)\] to \[(\d+)\]$`, step.upgradeCustomResource)
 	runner.addStep(`^Validate custom resource \[(\d+)\]$`, step.validateCustomResourceStatus)
+	runner.addStep(`^Validate deployment from CR \[(\d+)\] has argument \[([^"]*)\] in container \[([^"]*)\]$`, step.validateContainerArg)
 	runner.addStep(`^Validate \[([^"]*)\] driver from CR \[(\d+)\] is installed$`, step.validateDriverInstalled)
 	runner.addStep(`^Validate \[([^"]*)\] driver spec from CR \[(\d+)\]$`, step.validateMinimalCSMDriverSpec)
 	runner.addStep(`^Validate \[([^"]*)\] driver from CR \[(\d+)\] is not installed$`, step.validateDriverNotInstalled)
@@ -70,6 +72,8 @@ func StepRunnerInit(runner *Runner, ctrlClient client.Client, clientSet *kuberne
 
 	runner.addStep(`^Set secret for driver from CR \[(\d+)\] to \[([^"]*)\]$`, step.setDriverSecret)
 	runner.addStep(`^Create Secret with template \[([^"]*)\] name \[([^"]*)\] in namespace \[([^"]*)\] for \[([^"]*)\]`, step.setUpSecret)
+	runner.addStep(`^Create Secret from file \[([^"]*)\] name \[([^"]*)\] in namespace \[([^"]*)\] for \[([^"]*)\]`, step.setUpSecretFromFile)
+	runner.addStep(`^Generate and Create SFTP Secrets from template \[([^"]*)\] private-secret \[([^"]*)\] public-secret \[([^"]*)\] in namespace \[([^"]*)\] for \[([^"]*)\]$`, step.generateAndCreateSftpSecrets)
 	runner.addStep(`^Create ConfigMap with template \[([^"]*)\] name \[([^"]*)\] in namespace \[([^"]*)\] for \[([^"]*)\]`, step.setUpConfigMap)
 	runner.addStep(`^Create resource with template \[([^"]*)\] for \[([^"]*)\]`, step.createResource)
 	runner.addStep(`^Create StorageClass with template \[([^"]*)\] for \[([^"]*)\]`, step.setUpStorageClass)
@@ -77,13 +81,13 @@ func StepRunnerInit(runner *Runner, ctrlClient client.Client, clientSet *kuberne
 	runner.addStep(`^Set up ephemeral volume properties \[([^"]*)\] for \[([^"]*)\]`, step.setupEphemeralVolumeProperties)
 
 	// Configure authorization-proxy-server for [powerflex]
-	runner.addStep(`^Configure authorization-proxy-server for \[([^"]*)\] for CR \[(\d+)\]$`, step.configureAuthorizationProxyServer)
+	runner.addStep(`^Configure authorization-proxy-server with template \[([^"]*)\] for \[([^"]*)\] for CR \[(\d+)\]$`, step.configureAuthorizationProxyServer)
 	// Authorization Proxy Server V2 additional steps
 	runner.addStep(`^Install Authorization CRDs \[(\d+)\]$`, step.createCustomResourceDefinition)
 	runner.addStep(`^Validate \[([^"]*)\] CRD for Authorization is installed$`, step.validateCustomResourceDefinition)
 	runner.addStep(`^Delete Authorization CRs for \[([^"]*)\]$`, step.deleteAuthorizationCRs)
 	runner.addStep(`^Delete Authorization CRDs \[(\d+)\]$`, step.deleteCustomResourceDefinition)
-	runner.addStep(`^Set up application mobility CR \[([^"]*)\]$`, step.configureAMInstall)
+	runner.addStep(`^Set up Powerflex SFTP CR \[([^"]*)\]$`, step.configurePowerflexSftpInstall)
 	runner.addStep(`^Set up reverse proxy tls secret namespace \[([^"]*)\]`, step.setUpReverseProxy)
 	runner.addStep(`^Set up reverse proxy tls secret with SAN namespace \[([^"]*)\]`, step.setUpTLSSecretWithSAN)
 }
@@ -120,6 +124,20 @@ func (runner *Runner) addStep(expr string, stepFunc interface{}) {
 
 // RunStep - runs a step
 func (runner *Runner) RunStep(stepName string, res Resource) error {
+	// Support conditional execution: "If config.enableSftpSDC is true: ..."
+	const conditionalPrefix = "If config.enableSftpSDC is true: "
+	if len(stepName) > len(conditionalPrefix) && stepName[:len(conditionalPrefix)] == conditionalPrefix {
+		if res.Scenario.Config["enableSftpSDC"] != "true" {
+			// Skip the step if the config is not enabled
+			fmt.Printf("             Skipping   %s\n", stepName[len(conditionalPrefix):])
+			fmt.Println("             Reason: config.enableSftpSDC is not set to 'true'")
+
+			return nil
+		}
+		// Run the actual step (remove the prefix)
+		stepName = stepName[len(conditionalPrefix):]
+	}
+
 	for _, stepDef := range runner.Definitions {
 		if stepDef.Expr.MatchString(stepName) {
 			var values []reflect.Value

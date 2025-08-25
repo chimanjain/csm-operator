@@ -104,8 +104,8 @@ driver-unit-test:
 module-unit-test:
 	go clean -cache && go test -v -coverprofile=c.out github.com/dell/csm-operator/pkg/modules
 
-utils-unit-test:
-	go clean -cache && go test -v -coverprofile=c.out github.com/dell/csm-operator/pkg/utils
+operatorutils-unit-test:
+	go clean -cache && go test -v -coverprofile=c.out github.com/dell/csm-operator/pkg/operatorutils
 
 .PHONY: actions action-help
 actions: ## Run all GitHub Action checks that run on a pull request creation
@@ -190,7 +190,7 @@ $(LOCALBIN):
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 
 ## Tool Versions
-CONTROLLER_TOOLS_VERSION ?= v0.16.5
+CONTROLLER_TOOLS_VERSION ?= v0.18.0
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary. If wrong version is installed, it will be overwritten.
@@ -226,7 +226,7 @@ bundle: static-manifests gen-semver kustomize ## Generate bundle manifests and m
 	operator-sdk generate kustomize manifests -q
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
 	$(KUSTOMIZE) build config/manifests | operator-sdk generate bundle -q --overwrite --version $(BUNDLE_VERSION) $(BUNDLE_METADATA_OPTS) --use-image-digests=false
-	operator-sdk bundle validate ./bundle
+	operator-sdk bundle validate ./bundle --select-optional suite=operatorframework
 
 .PHONY: bundle-build
 bundle-build: gen-semver download-csm-common ## Build the bundle image.

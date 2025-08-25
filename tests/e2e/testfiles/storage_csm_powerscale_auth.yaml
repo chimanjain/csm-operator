@@ -11,7 +11,7 @@ spec:
       # Allowed values: ReadWriteOnceWithFSType, File , None
       # Default value: ReadWriteOnceWithFSType
       fSGroupPolicy: "ReadWriteOnceWithFSType"
-    configVersion: v2.14.0
+    configVersion: v2.15.0
     authSecret: isilon-creds-auth
     replicas: 2
     dnsPolicy: ClusterFirstWithHostNet
@@ -89,6 +89,11 @@ spec:
         # Default value: "debug"
         - name: "CSI_LOG_LEVEL"
           value: "debug"
+        # AZ_RECONCILE_INTERVAL: Interval to monitor and reconcile network interface labels on nodes.
+        # Allowed values: Number followed by unit of time (s,m,h)
+        # Default value: 1h
+        - name: "AZ_RECONCILE_INTERVAL"
+          value: "1h"
     controller:
       envs:
         # X_CSI_ISI_QUOTA_ENABLED: Indicates whether the provisioner should attempt to set (later unset) quota
@@ -220,7 +225,7 @@ spec:
     - name: authorization
       # enable: Enable/Disable csm-authorization
       enabled: true
-      configVersion: v2.2.0
+      configVersion: v2.3.0
       components:
         - name: karavi-authorization-proxy
           image: quay.io/dell/container-storage-modules/csm-authorization-sidecar:nightly

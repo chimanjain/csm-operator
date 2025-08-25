@@ -21,20 +21,21 @@ import (
 	osruntime "runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 
-	"k8s.io/client-go/kubernetes"
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"k8s.io/client-go/rest"
-
+	operatorutils "github.com/dell/csm-operator/pkg/operatorutils"
 	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/version"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -50,8 +51,6 @@ import (
 	"github.com/dell/csm-operator/core"
 	k8sClient "github.com/dell/csm-operator/k8s"
 	"github.com/dell/csm-operator/pkg/logger"
-	utils "github.com/dell/csm-operator/pkg/utils"
-	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -81,8 +80,6 @@ func init() {
 
 	utilruntime.Must(csmv1.AddToScheme(scheme))
 
-	utilruntime.Must(velerov1.AddToScheme(scheme))
-
 	utilruntime.Must(apiextv1.AddToScheme(scheme))
 
 	utilruntime.Must(certmanagerv1.AddToScheme(scheme))
@@ -97,8 +94,8 @@ func printVersion(log *zap.SugaredLogger) {
 }
 
 var (
-	isOpenShift = func() (bool, error) {
-		return k8sClient.IsOpenShift()
+	isOpenShift = func(log *zap.SugaredLogger) (bool, error) {
+		return k8sClient.IsOpenShift(log)
 	}
 
 	getKubeAPIServerVersion = func() (*version.Info, error) {
@@ -126,12 +123,12 @@ var (
 	}
 )
 
-func getOperatorConfig(log *zap.SugaredLogger) (utils.OperatorConfig, error) {
-	cfg := utils.OperatorConfig{}
+func getOperatorConfig(log *zap.SugaredLogger) (operatorutils.OperatorConfig, error) {
+	cfg := operatorutils.OperatorConfig{}
 
-	isOpenShift, err := isOpenShift()
+	isOpenShift, err := isOpenShift(log)
 	if err != nil {
-		log.Info(fmt.Sprintf("isOpenShift err %t", isOpenShift))
+		log.Info(fmt.Sprintf("isOpenShift returned %v err %v", isOpenShift, err))
 	}
 	cfg.IsOpenShift = isOpenShift
 	if isOpenShift {
@@ -184,7 +181,7 @@ func getOperatorConfig(log *zap.SugaredLogger) (utils.OperatorConfig, error) {
 		log.Info(fmt.Sprintf("reading file, %s, from the configmap mount: %v", k8sPath, err))
 	}
 
-	var imageConfig utils.K8sImagesConfig
+	var imageConfig operatorutils.K8sImagesConfig
 	err = yamlUnmarshal(buf, &imageConfig)
 	if err != nil {
 		return cfg, fmt.Errorf("unmarshalling: %v", err)
@@ -307,12 +304,14 @@ func main() {
 	expRateLimiter := workqueue.NewTypedItemExponentialFailureRateLimiter[reconcile.Request](5*time.Millisecond, 120*time.Second)
 
 	r := &controllers.ContainerStorageModuleReconciler{
-		Client:        mgr.GetClient(),
-		K8sClient:     k8sClient,
-		Log:           log,
-		Scheme:        mgr.GetScheme(),
-		EventRecorder: recorder,
-		Config:        operatorConfig,
+		Client:               mgr.GetClient(),
+		K8sClient:            k8sClient,
+		Log:                  log,
+		Scheme:               mgr.GetScheme(),
+		EventRecorder:        recorder,
+		Config:               operatorConfig,
+		ContentWatchChannels: make(map[string]chan struct{}),
+		ContentWatchLock:     sync.Mutex{},
 	}
 
 	setupWithManager := getSetupWithManagerFn(r)

@@ -9,7 +9,7 @@ spec:
     - name: authorization-proxy-server
       # enable: Enable/Disable csm-authorization
       enabled: true
-      configVersion: v2.2.0
+      configVersion: v2.3.0
       forceRemoveModule: true
       components:
         # For Kubernetes Container Platform only
@@ -39,7 +39,7 @@ spec:
           storageService: quay.io/dell/container-storage-modules/csm-authorization-storage:nightly
           storageServiceReplicas: 1
           opa: docker.io/openpolicyagent/opa:0.70.0
-          opaKubeMgmt: openpolicyagent/kube-mgmt:8.5.7
+          opaKubeMgmt: openpolicyagent/kube-mgmt:8.5.11
           authorizationController: quay.io/dell/container-storage-modules/csm-authorization-controller:nightly
           authorizationControllerReplicas: 1
           leaderElection: true
@@ -66,7 +66,16 @@ spec:
               # additional annotations for the proxy-server ingress
               annotations: {}
         - name: redis
-          redis: redis:7.4.0-alpine
+          # Redis secret configuration:
+          # Use a SecretProviderClass for Redis credentials; otherwise, a default Kubernetes secret is used.
+          redisSecretProviderClass:
+            # The name of the Kubernetes secret created by the CSI driver
+            - redisSecretName: array-creds
+              # The key in the secret that holds the Redis username
+              redisUsernameKey: username
+              # The key in the secret that holds the Redis password
+              redisPasswordKey: password
+          redis: redis:7.4.3-alpine
           commander: rediscommander/redis-commander:latest
           redisName: redis-csm
           redisCommander: redicommander
@@ -77,24 +86,11 @@ spec:
           # NOTE: the storage class must NOT be a storage class provisioned by a CSI driver using this installation of CSM Authorization
           # Default value: None
           storageclass: ""
-        - name: vault
-          vaultConfigurations:
-            - identifier: vault0
-              address: https://vault.default.svc.cluster.local:8400  # must be replaced in testing with actual vault
-              role: csm-authorization
-              skipCertificateValidation: true
-              # clientCertificate: base64-encoded certificate for cert/private-key pair -- add cert here to use custom certificates
-              #  for self-signed certs, leave empty string
-              # Allowed values: string
-              clientCertificate: ""
-              # clientKey: base64-encoded private key for cert/private-key pair -- add private key here to use custom certificates
-              #  for self-signed certs, leave empty string
-              # Allowed values: string
-              clientKey: ""
-              # certificateAuthority: base64-encoded certificate authority for validating vault server certificate -- add certificate authority here to use custom certificates
-              #  for self-signed certs, leave empty string
-              # Allowed values: string
-              certificateAuthority: ""
+
+        - name: storage-system-credentials
+          secretProviderClasses:
+            vault:
+              - array-creds
 
 ---
 apiVersion: v1
@@ -104,7 +100,6 @@ metadata:
   namespace: authorization
 data:
   csm-config-params.yaml: |-
-    CONCURRENT_POWERFLEX_REQUESTS: 10
+    CONCURRENT_STORAGE_REQUESTS: 10
     LOG_LEVEL: debug
     STORAGE_CAPACITY_POLL_INTERVAL: 30s
-    CONCURRENT_POWERSCALE_REQUESTS: 10

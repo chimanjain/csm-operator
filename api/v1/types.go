@@ -1,4 +1,4 @@
-//  Copyright © 2021 - 2024 Dell Inc. or its subsidiaries. All Rights Reserved.
+//  Copyright © 2021 - 2025 Dell Inc. or its subsidiaries. All Rights Reserved.
 //
 //  Licensed under the Apache License, Version 2.0 (the "License");
 //  you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ type DriverType string
 // ModuleType - type representing the type of the modules. e.g. - authorization, podmon
 type ModuleType string
 
-// ObservabilityComponentType - type representing the type of components inside observability module. e.g. - topology
+// ObservabilityComponentType - type representing the type of components inside observability module. e.g. - otel-collector
 type ObservabilityComponentType string
 
 // ClientType - the type of the client
@@ -64,9 +64,6 @@ const (
 
 	// ReverseProxyServer - placeholder for constant csipowermax-reverseproxy
 	ReverseProxyServer ModuleType = "csipowermax-reverseproxy" // #nosec G101
-
-	// ApplicationMobility - placeholder for constant application-mobility
-	ApplicationMobility ModuleType = "application-mobility"
 
 	// Topology - placeholder for constant topology
 	Topology ObservabilityComponentType = "topology"
@@ -347,7 +344,20 @@ type ContainerTemplate struct {
 
 	// Vaults are the vault configurations
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Vault Configurations"
+	// Applicable till CSM v1.14
 	Vaults []Vault `json:"vaultConfigurations,omitempty" yaml:"vaultConfigurations,omitempty"`
+
+	// SecretProviderClasses is a collection of secret provider classes for retrieving secrets from external providers for storage system credentials
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Secret Provider Classes"
+	// Applicable from CSM v1.15 onwards
+	// Only one of SecretProviderClasses or Secrets must be specified (mutually exclusive)
+	SecretProviderClasses *StorageSystemSecretProviderClasses `json:"secretProviderClasses,omitempty" yaml:"secretProviderClasses,omitempty"`
+
+	// Secrets is a collection of kubernetes secrets for storage system credentials
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Secrets"
+	// Applicable from CSM v1.15 onwards
+	// Only one of SecretProviderClasses or Secrets must be specified (mutually exclusive)
+	Secrets []string `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 
 	// skipCertificateValidation is the flag to skip certificate validation
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Authorization Skip Certificate Validation"
@@ -369,33 +379,11 @@ type ContainerTemplate struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Sentinel StatefulSet Name"
 	Sentinel string `json:"sentinel,omitempty" yaml:"sentinel,omitempty"`
 
-	// ReplicaCount is the replica count for app mobility
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Application Mobility Replica Count"
-	ReplicaCount string `json:"replicaCount,omitempty" yaml:"replicaCount,omitempty"`
-
-	// VeleroNamespace is the namespace that Velero is installed in
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Velero namespace"
-	VeleroNamespace string `json:"veleroNamespace,omitempty" yaml:"veleroNamespace,omitempty"`
-
-	// LicenseName is the name of the license for app-mobility
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="License Name for Application Mobility"
-	LicenseName string `json:"licenseName,omitempty" yaml:"licenseName,omitempty"`
-
-	// ObjectStoreSecretName is the name of the secret for the object store for app-mobility
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Application Mobility Object Store Secret"
-	ObjectStoreSecretName string `json:"objectStoreSecretName,omitempty" yaml:"objectStoreSecretName,omitempty"`
-
-	// UseSnapshot is to check whether volume snapshot is enabled under velero component
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="use-volume-snapshots for Application Mobilit- Velero"
-	UseSnapshot bool `json:"useVolumeSnapshot,omitempty" yaml:"useVolumeSnapshot,omitempty"`
-
-	// ComponentCred is to store the velero credential contents
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="ComponentCred for velero component"
-	ComponentCred []Credential `json:"credentials,omitempty" yaml:"credentials,omitempty"`
-
-	// DeployNodeAgent is to enable/disable node-agent services
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Deploy node-agent for Application Mobility"
-	DeployNodeAgent bool `json:"deployNodeAgent,omitempty" yaml:"deployNodeAgent,omitempty"`
+	// RedisSecretProviderClass is the SecretProviderClass Object details for redis
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Redis SecretProviderClass details"
+	// Applicable from CSM v1.15 onwards
+	// +kubebuilder:validation:MaxItems=1
+	RedisSecretProviderClass []RedisSecretProviderClass `json:"redisSecretProviderClass,omitempty" yaml:"redisSecretProviderClass,omitempty"`
 
 	// Certificate is a certificate used for a certificate/private-key pair
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Certificate for certificate/private-key pair"
@@ -436,35 +424,58 @@ type ProxyServerIngress struct {
 	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
 }
 
+// RedisSecretProviderClass is the redis secret configuration for CSM Authorization
+type RedisSecretProviderClass struct {
+	// RedisSecretName is the name of the Kubernetes secret created by the CSI driver
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Redis Secret Name"
+	RedisSecretName string `json:"redisSecretName,omitempty" yaml:"redisSecretName,omitempty"`
+
+	// RedisUsernameKey is the key in the secret that holds the Redis username
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Redis Username Key"
+	// +kubebuilder:validation:Required
+	RedisUsernameKey string `json:"redisUsernameKey" yaml:"redisUsernameKey"`
+
+	// RedisPasswordKey is the key in the secret that holds the Redis password
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Redis Password Key"
+	// +kubebuilder:validation:Required
+	RedisPasswordKey string `json:"redisPasswordKey" yaml:"redisPasswordKey"`
+}
+
+// StorageSystemSecretProviderClass is a collection of secret provider classes for retrieving secrets from external providers for storage system credentials
+type StorageSystemSecretProviderClasses struct {
+	// Vault is the list SecretProviderClass names provided by Vault
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Vault SecretProviderClass Names"
+	Vaults []string `json:"vault,omitempty" yaml:"vault,omitempty"`
+
+	// Conjur is the list SecretProviderClass names provided by Conjur
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Conjur SecretProviderClasses"
+	Conjurs []ConjurSecretProviderClass `json:"conjur,omitempty" yaml:"conjur,omitempty"`
+}
+
+type ConjurSecretProviderClass struct {
+	// Name is the name of the Conjur SecretProviderClass
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Conjur SecretProviderClass Name"
+	Name string `json:"name,omitempty" yaml:"name,omitempty"`
+
+	// Paths is the list of paths to the secrets in Conjur
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Conjur Credential Paths"
+	Paths []ConjurCredentialPath `json:"paths,omitempty" yaml:"paths,omitempty"`
+}
+
+type ConjurCredentialPath struct {
+	// UsernamePath is the path to the username in the secret
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Conjur Username Path"
+	UsernamePath string `json:"usernamePath,omitempty" yaml:"usernamePath,omitempty"`
+
+	// PasswordPath is the path to the password in the secret
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Conjur Password Path"
+	PasswordPath string `json:"passwordPath,omitempty" yaml:"passwordPath,omitempty"`
+}
+
 // CSIDriverSpec struct
 type CSIDriverSpec struct {
 	FSGroupPolicy   string `json:"fSGroupPolicy,omitempty" yaml:"fSGroupPolicy,omitempty"`
 	StorageCapacity bool   `json:"storageCapacity,omitempty" yaml:"storageCapacity"`
-}
-
-// Credential struct
-type Credential struct {
-	// CreateWithInstall is used to indicate wether or not to create a secret for objectstore
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="CreateWithInstall"
-	CreateWithInstall bool `json:"createWithInstall,omitempty" yaml:"createWithInstall,omitempty"`
-
-	// Name is the name of secret which contains credentials to access objectstore
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Name"
-	Name string `json:"name,omitempty" yaml:"name,omitempty"`
-
-	// SecretContents contains credentials to access objectstore
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="secretContents"
-	SecretContents Credkey `json:"secretContents,omitempty" yaml:"secretContents"`
-}
-
-// Credkey struct
-type Credkey struct {
-	// AccessKeyID is a name of key ID to access objectstore
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="AccessKeyID"
-	AccessKeyID string `json:"aws_access_key_id,omitempty" yaml:"aws_access_key_id,omitempty"`
-	// AccessKey contains the key to access objectstore
-	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="AccessKey"
-	AccessKey string `json:"aws_secret_access_key,omitempty" yaml:"aws_secret_access_key,omitempty"`
 }
 
 // Vault is the configuration for a vault instance struct

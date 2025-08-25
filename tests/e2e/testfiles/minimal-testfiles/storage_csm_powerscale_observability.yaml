@@ -6,7 +6,7 @@ metadata:
 spec:
   driver:
     csiDriverType: "isilon"
-    configVersion: v2.14.0
+    configVersion: v2.15.0
     forceRemoveDriver: true
   modules:
     # Authorization: enable csm-authorization for RBAC
@@ -22,8 +22,6 @@ spec:
       # enabled: Enable/Disable observability
       enabled: true
       components:
-        - name: topology
-          enabled: true
         - name: otel-collector
           enabled: true
         - name: cert-manager

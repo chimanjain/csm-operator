@@ -19,39 +19,36 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
-
-	"github.com/dell/csm-operator/pkg/constants"
-	"github.com/dell/csm-operator/pkg/modules"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	csmv1 "github.com/dell/csm-operator/api/v1"
 	v1 "github.com/dell/csm-operator/api/v1"
+	"github.com/dell/csm-operator/pkg/constants"
 	"github.com/dell/csm-operator/pkg/logger"
-	"github.com/dell/csm-operator/pkg/utils"
+	"github.com/dell/csm-operator/pkg/modules"
+	operatorutils "github.com/dell/csm-operator/pkg/operatorutils"
 	"github.com/dell/csm-operator/tests/shared"
 	"github.com/dell/csm-operator/tests/shared/clientgoclient"
 	"github.com/dell/csm-operator/tests/shared/crclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
-	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes/scheme"
-
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -137,7 +134,6 @@ var (
 	csmName = "csm"
 
 	configVersion              = shared.ConfigVersion
-	appMobConfigVersion        = shared.AppMobConfigVersion
 	pFlexConfigVersion         = shared.PFlexConfigVersion
 	oldConfigVersion           = shared.OldConfigVersion
 	upgradeConfigVersion       = shared.UpgradeConfigVersion
@@ -153,11 +149,11 @@ var (
 		},
 	}
 
-	operatorConfig = utils.OperatorConfig{
+	operatorConfig = operatorutils.OperatorConfig{
 		ConfigDirectory: "../operatorconfig",
 	}
 
-	badOperatorConfig = utils.OperatorConfig{
+	badOperatorConfig = operatorutils.OperatorConfig{
 		ConfigDirectory: "../in-valid-path",
 	}
 )
@@ -181,10 +177,6 @@ func (suite *CSMControllerTestSuite) SetupTest() {
 	unittestLogger.Info("Init unit test...")
 
 	err := csmv1.AddToScheme(scheme.Scheme)
-	if err != nil {
-		panic(err)
-	}
-	err = velerov1.AddToScheme(scheme.Scheme)
 	if err != nil {
 		panic(err)
 	}
@@ -262,23 +254,6 @@ func (suite *CSMControllerTestSuite) TestAuthorizationServerPreCheck() {
 	suite.runFakeAuthCSMManager("", true, false)
 }
 
-func (suite *CSMControllerTestSuite) TestAppMobReconcile() {
-	suite.makeFakeAppMobCSM(csmName, suite.namespace, getAppMob())
-	suite.runFakeAuthCSMManager("", false, false)
-	suite.deleteCSM(csmName)
-	suite.runFakeAuthCSMManager("", true, false)
-}
-
-func (suite *CSMControllerTestSuite) TestAppMobPreCheckError() {
-	suite.makeFakeAppMobFailCSM(csmName, suite.namespace, getAppMob())
-	reconciler := suite.createReconciler()
-	res, err := reconciler.Reconcile(ctx, req)
-	ctrl.Log.Info("reconcile response", "res is: ", res)
-	if err != nil {
-		assert.NotNil(suite.T(), err)
-	}
-}
-
 func (suite *CSMControllerTestSuite) TestResiliencyReconcile() {
 	suite.makeFakeResiliencyCSM(csmName, suite.namespace, true, append(getResiliencyModule(), getResiliencyModule()...), string(v1.PowerStore))
 	suite.runFakeCSMManager("", false)
@@ -294,6 +269,27 @@ func (suite *CSMControllerTestSuite) TestResiliencyReconcileError() {
 	if err != nil {
 		assert.Error(suite.T(), err)
 	}
+}
+
+func (suite *CSMControllerTestSuite) TestContentWatch() {
+	// Arrange
+	csm := shared.MakeCSM(csmName, suite.namespace, shared.PmaxConfigVersion)
+	reconciler := suite.createReconciler()
+
+	// test case: environment variable set to non-default val
+	os.Setenv(RefreshEnvVar, "3")
+	_, err := reconciler.ContentWatch(&csm)
+	assert.Nil(suite.T(), err)
+
+	// test case: environment variable set to non-number val
+	os.Setenv(RefreshEnvVar, "dummy")
+	_, err = reconciler.ContentWatch(&csm)
+	assert.Nil(suite.T(), err)
+
+	// test case: environment variable unset
+	os.Unsetenv(RefreshEnvVar)
+	_, err = reconciler.ContentWatch(&csm)
+	assert.Nil(suite.T(), err)
 }
 
 func (suite *CSMControllerTestSuite) TestReverseProxyReconcile() {
@@ -800,7 +796,7 @@ func (suite *CSMControllerTestSuite) TestRemoveDriver() {
 		expectedErr   string
 	}{
 		{"getDriverConfig error", csmBadType, nil, "no such file or directory"},
-		// don't return error if there's no driver- could be a valid case like Auth server or App Mobility
+		// don't return error if there's no driver- could be a valid case like Auth server
 		{"getDriverConfig no driver", csmWoType, nil, ""},
 		// can't find objects since they are not created. In this case error is nil
 		{"delete obj not found", csm, nil, ""},
@@ -853,8 +849,6 @@ func (suite *CSMControllerTestSuite) TestSyncCSM() {
 	csmBadType.Spec.Driver.CSIDriverType = "wrongdriver"
 	authProxyServerCSM := shared.MakeCSM(csmName, suite.namespace, configVersion)
 	authProxyServerCSM.Spec.Modules = getAuthProxyServer()
-	appMobCSM := shared.MakeCSM(csmName, suite.namespace, configVersion)
-	appMobCSM.Spec.Modules = getAppMob()
 	reverseProxyServerCSM := shared.MakeCSM(csmName, suite.namespace, configVersion)
 	reverseProxyServerCSM.Spec.Modules = getReverseProxyModule()
 	modules.IsReverseProxySidecar = func() bool { return false }
@@ -882,12 +876,10 @@ func (suite *CSMControllerTestSuite) TestSyncCSM() {
 	syncCSMTests := []struct {
 		name        string
 		csm         csmv1.ContainerStorageModule
-		op          utils.OperatorConfig
+		op          operatorutils.OperatorConfig
 		expectedErr string
 	}{
 		{"auth proxy server bad op conf", authProxyServerCSM, badOperatorConfig, "failed to deploy authorization proxy server"},
-		{"app mobility happy path", appMobCSM, operatorConfig, ""},
-		{"app mobility bad op conf", appMobCSM, badOperatorConfig, "failed to deploy application mobility"},
 		{"reverse proxy server bad op conf", reverseProxyServerCSM, badOperatorConfig, "failed to deploy reverseproxy proxy server"},
 		{"getDriverConfig bad op config", csm, badOperatorConfig, ""},
 		{"getDriverConfig error", csmBadType, badOperatorConfig, "no such file or directory"},
@@ -965,16 +957,16 @@ func (suite *CSMControllerTestSuite) TestRemoveModule() {
 func (suite *CSMControllerTestSuite) TestOldStandAloneModuleCleanup() {
 	tests := map[string]func(t *testing.T) (csm *csmv1.ContainerStorageModule, errorInjector *bool, expectedErr string){
 		"Success - Enable all modules": func(*testing.T) (*csmv1.ContainerStorageModule, *bool, string) {
-			suite.makeFakeCSM(csmName, suite.namespace, false, append(append(getReplicaModule(), getObservabilityModule()...), getAppMob()...))
+			suite.makeFakeCSM(csmName, suite.namespace, false, append(getReplicaModule(), getObservabilityModule()...))
 			csm := &csmv1.ContainerStorageModule{}
 			key := types.NamespacedName{Namespace: suite.namespace, Name: csmName}
 			err := suite.fakeClient.Get(ctx, key, csm)
 			assert.Nil(suite.T(), err)
-			csm.Spec.Modules = append(append(getReplicaModule(), getObservabilityModule()...), getAppMob()...)
+			csm.Spec.Modules = append(getReplicaModule(), getObservabilityModule()...)
 			return csm, &[]bool{false}[0], ""
 		},
 		"Success - Disable all modules": func(*testing.T) (*csmv1.ContainerStorageModule, *bool, string) {
-			suite.makeFakeCSM(csmName, suite.namespace, false, append(append(getReplicaModule(), getObservabilityModule()...), getAppMob()...))
+			suite.makeFakeCSM(csmName, suite.namespace, false, append(getReplicaModule(), getObservabilityModule()...))
 
 			csm := &csmv1.ContainerStorageModule{}
 			key := types.NamespacedName{Namespace: suite.namespace, Name: csmName}
@@ -982,15 +974,13 @@ func (suite *CSMControllerTestSuite) TestOldStandAloneModuleCleanup() {
 			assert.Nil(suite.T(), err)
 			replica := getReplicaModule()
 			replica[0].Enabled = false
-			appMob := getAppMob()
-			appMob[0].Enabled = false
 			obs := getObservabilityModule()
 			obs[0].Enabled = false
-			csm.Spec.Modules = append(append(replica, obs...), appMob...)
+			csm.Spec.Modules = append(replica, obs...)
 			return csm, &[]bool{false}[0], ""
 		},
 		"Success - Disable Components": func(*testing.T) (*csmv1.ContainerStorageModule, *bool, string) {
-			suite.makeFakeCSM(csmName, suite.namespace, false, append(append(getReplicaModule(), getObservabilityModule()...), getAppMob()...))
+			suite.makeFakeCSM(csmName, suite.namespace, false, append(getReplicaModule(), getObservabilityModule()...))
 
 			csm := &csmv1.ContainerStorageModule{}
 			key := types.NamespacedName{Namespace: suite.namespace, Name: csmName}
@@ -998,30 +988,28 @@ func (suite *CSMControllerTestSuite) TestOldStandAloneModuleCleanup() {
 			assert.Nil(suite.T(), err)
 			obs := getObservabilityModule()
 			obs[0].Components[0].Enabled = &[]bool{false}[0]
-			appMob := getAppMob()
-			appMob[0].Components[0].Enabled = &[]bool{false}[0]
-			csm.Spec.Modules = append(append(getReplicaModule(), getObservabilityModule()...), getAppMob()...)
+			csm.Spec.Modules = append(getReplicaModule(), getObservabilityModule()...)
 			return csm, &[]bool{false}[0], ""
 		},
 		"Fail - unmarshalling annotations": func(*testing.T) (*csmv1.ContainerStorageModule, *bool, string) {
-			suite.makeFakeCSM(csmName, suite.namespace, false, append(append(getReplicaModule(), getObservabilityModule()...), getAppMob()...))
+			suite.makeFakeCSM(csmName, suite.namespace, false, append(getReplicaModule(), getObservabilityModule()...))
 			csm := &csmv1.ContainerStorageModule{}
 			key := types.NamespacedName{Namespace: suite.namespace, Name: csmName}
 			err := suite.fakeClient.Get(ctx, key, csm)
 			assert.Nil(suite.T(), err)
-			csm.Spec.Modules = append(append(getReplicaModule(), getObservabilityModule()...), getAppMob()...)
+			csm.Spec.Modules = append(getReplicaModule(), getObservabilityModule()...)
 			csm.Annotations[previouslyAppliedCustomResource] = "invalid json"
 			return csm, &[]bool{false}[0], "error unmarshalling old annotation"
 		},
 		"Success - Disable specific components": func(*testing.T) (*csmv1.ContainerStorageModule, *bool, string) {
-			suite.makeFakeCSM(csmName, suite.namespace, false, append(append(getReplicaModule(), getObservabilityModule()...), getAppMob()...))
+			suite.makeFakeCSM(csmName, suite.namespace, false, append(getReplicaModule(), getObservabilityModule()...))
 			csm := &csmv1.ContainerStorageModule{}
 			key := types.NamespacedName{Namespace: suite.namespace, Name: csmName}
 			err := suite.fakeClient.Get(ctx, key, csm)
 			assert.Nil(suite.T(), err)
 			obs := getObservabilityModule()
 			obs[0].Components[0].Enabled = &[]bool{false}[0]
-			csm.Spec.Modules = append(append(getReplicaModule(), obs...), getAppMob()...)
+			csm.Spec.Modules = append(getReplicaModule(), obs...)
 			return csm, &[]bool{false}[0], ""
 		},
 	}
@@ -1131,11 +1119,11 @@ func (suite *CSMControllerTestSuite) TestCsmPreCheckModuleError() {
 	}
 	reconciler := suite.createReconciler()
 
-	goodOperatorConfig := utils.OperatorConfig{
+	goodOperatorConfig := operatorutils.OperatorConfig{
 		ConfigDirectory: "../operatorconfig",
 	}
 
-	badOperatorConfig := utils.OperatorConfig{
+	badOperatorConfig := operatorutils.OperatorConfig{
 		ConfigDirectory: "../in-valid-path",
 	}
 
@@ -1146,11 +1134,6 @@ func (suite *CSMControllerTestSuite) TestCsmPreCheckModuleError() {
 
 	// error in Authorization Proxy Server
 	csm.Spec.Modules = getAuthProxyServer()
-	err = reconciler.PreChecks(ctx, &csm, badOperatorConfig)
-	assert.NotNil(suite.T(), err)
-
-	// error in App-Mobility
-	csm.Spec.Modules = getAppMob()
 	err = reconciler.PreChecks(ctx, &csm, badOperatorConfig)
 	assert.NotNil(suite.T(), err)
 
@@ -1279,41 +1262,191 @@ func TestCustom(t *testing.T) {
 	suite.Run(t, testSuite)
 }
 
-// test with a csm without a finalizer, reconcile should add it
-func (suite *CSMControllerTestSuite) TestContentWatch() {
-	mgr, err := ctrl.NewManager(&rest.Config{}, ctrl.Options{
-		Scheme: scheme.Scheme,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	expRateLimiter := workqueue.NewTypedItemExponentialFailureRateLimiter[reconcile.Request](5*time.Millisecond, 120*time.Second)
-	err = suite.createReconciler().SetupWithManager(mgr, expRateLimiter, 1)
-	if err != nil {
-		panic(err)
-	}
-	close(StopWatch)
-	version, err := utils.GetModuleDefaultVersion("v2.12.0", "csi-isilon", csmv1.Authorization, "../operatorconfig")
-	assert.NotNil(suite.T(), err)
-	assert.NotNil(suite.T(), version)
-}
-
 func (suite *CSMControllerTestSuite) createReconciler() (reconciler *ContainerStorageModuleReconciler) {
 	logType := logger.DevelopmentLogLevel
 	_, log := logger.GetNewContextWithLogger("0")
 	log.Infof("Version : %s", logType)
 
 	reconciler = &ContainerStorageModuleReconciler{
-		Client:        suite.fakeClient,
-		K8sClient:     suite.k8sClient,
-		Scheme:        scheme.Scheme,
-		Log:           log,
-		Config:        operatorConfig,
-		EventRecorder: record.NewFakeRecorder(100),
+		Client:               suite.fakeClient,
+		K8sClient:            suite.k8sClient,
+		Scheme:               scheme.Scheme,
+		Log:                  log,
+		Config:               operatorConfig,
+		EventRecorder:        record.NewFakeRecorder(100),
+		ContentWatchChannels: map[string]chan struct{}{},
+		ContentWatchLock:     sync.Mutex{},
 	}
 
 	return reconciler
+}
+
+func (suite *CSMControllerTestSuite) TestInformerUpdate() {
+	tests := []struct {
+		csm        *csmv1.ContainerStorageModule
+		oldObj     interface{}
+		objType    string
+		wantCalled bool
+	}{
+		{
+			csm: &csmv1.ContainerStorageModule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "powermax",
+					Namespace: "powermax",
+				},
+			},
+			objType: "deployment",
+			oldObj: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{
+								constants.CsmLabel:          "powermax",
+								constants.CsmNamespaceLabel: "powermax",
+							},
+						},
+					},
+				},
+			},
+			wantCalled: true,
+		},
+		{
+			csm: &csmv1.ContainerStorageModule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "powermax",
+					Namespace: "powermax",
+				},
+			},
+			objType: "deployment",
+			oldObj: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{
+								constants.CsmLabel:          "powerflex",
+								constants.CsmNamespaceLabel: "powerflex",
+							},
+						},
+					},
+				},
+			},
+			wantCalled: false,
+		},
+		{
+			csm: &csmv1.ContainerStorageModule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "powermax",
+					Namespace: "powermax",
+				},
+			},
+			objType: "daemonset",
+			oldObj: &appsv1.DaemonSet{
+				Spec: appsv1.DaemonSetSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{
+								constants.CsmLabel:          "powermax",
+								constants.CsmNamespaceLabel: "powermax",
+							},
+						},
+					},
+				},
+			},
+			wantCalled: true,
+		},
+		{
+			csm: &csmv1.ContainerStorageModule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "powermax",
+					Namespace: "powermax",
+				},
+			},
+			objType: "daemonset",
+			oldObj: &appsv1.DaemonSet{
+				Spec: appsv1.DaemonSetSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{
+								constants.CsmLabel:          "powerflex",
+								constants.CsmNamespaceLabel: "powerflex",
+							},
+						},
+					},
+				},
+			},
+			wantCalled: false,
+		},
+		{
+			csm: &csmv1.ContainerStorageModule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "powermax",
+					Namespace: "powermax",
+				},
+			},
+			objType: "pod",
+			oldObj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.CsmLabel:          "powermax",
+						constants.CsmNamespaceLabel: "powermax",
+					},
+				},
+			},
+			wantCalled: true,
+		},
+		{
+			csm: &csmv1.ContainerStorageModule{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "powermax",
+					Namespace: "powermax",
+				},
+			},
+			objType: "pod",
+			oldObj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						constants.CsmLabel:          "powerflex",
+						constants.CsmNamespaceLabel: "powerflex",
+					},
+				},
+			},
+			wantCalled: false,
+		},
+	}
+
+	handleDaemonsetFnCalled := false
+	handleDaemonsetFn := func(_ interface{}, _ interface{}) {
+		handleDaemonsetFnCalled = true
+	}
+
+	handleDeploymentFnCalled := false
+	handleDeploymentFn := func(_ interface{}, _ interface{}) {
+		handleDeploymentFnCalled = true
+	}
+
+	handlePodFnCalled := false
+	handlePodFn := func(_ interface{}, _ interface{}) {
+		handlePodFnCalled = true
+	}
+
+	reset := func() {
+		handleDaemonsetFnCalled = false
+		handleDeploymentFnCalled = false
+		handlePodFnCalled = false
+	}
+	r := &ContainerStorageModuleReconciler{}
+	for _, test := range tests {
+		r.informerUpdate(test.csm, test.oldObj, nil, handleDaemonsetFn, handleDeploymentFn, handlePodFn)
+		switch test.objType {
+		case "deployment":
+			assert.Equal(suite.T(), test.wantCalled, handleDeploymentFnCalled)
+		case "daemonset":
+			assert.Equal(suite.T(), test.wantCalled, handleDaemonsetFnCalled)
+		case "pod":
+			assert.Equal(suite.T(), test.wantCalled, handlePodFnCalled)
+		}
+		reset()
+	}
 }
 
 func (suite *CSMControllerTestSuite) runFakeCSMManager(expectedErr string, reconcileDelete bool) {
@@ -1707,7 +1840,7 @@ func getObservabilityModule() []csmv1.Module {
 		{
 			Name:          csmv1.Observability,
 			Enabled:       true,
-			ConfigVersion: "v1.10.0",
+			ConfigVersion: "v1.13.0",
 			Components: []csmv1.ContainerTemplate{
 				{
 					Name:    "topology",
@@ -1759,10 +1892,10 @@ func getReplicaModule() []csmv1.Module {
 		{
 			Name:          csmv1.Replication,
 			Enabled:       true,
-			ConfigVersion: "v1.12.0",
+			ConfigVersion: "v1.13.0",
 			Components: []csmv1.ContainerTemplate{
 				{
-					Name: utils.ReplicationSideCarName,
+					Name: operatorutils.ReplicationSideCarName,
 				},
 			},
 		},
@@ -1774,10 +1907,10 @@ func getResiliencyModule() []csmv1.Module {
 		{
 			Name:          csmv1.Resiliency,
 			Enabled:       true,
-			ConfigVersion: "v1.13.0",
+			ConfigVersion: "v1.14.0",
 			Components: []csmv1.ContainerTemplate{
 				{
-					Name: utils.ResiliencySideCarName,
+					Name: operatorutils.ResiliencySideCarName,
 				},
 			},
 		},
@@ -1789,7 +1922,7 @@ func getAuthModule() []csmv1.Module {
 		{
 			Name:          csmv1.Authorization,
 			Enabled:       true,
-			ConfigVersion: "v2.0.0",
+			ConfigVersion: "v2.3.0",
 			Components: []csmv1.ContainerTemplate{
 				{
 					Name: "karavi-authorization-proxy",
@@ -1847,7 +1980,7 @@ func getAuthProxyServerOCP() []csmv1.Module {
 		{
 			Name:              csmv1.AuthorizationServer,
 			Enabled:           true,
-			ConfigVersion:     "v2.0.0",
+			ConfigVersion:     "v2.3.0",
 			ForceRemoveModule: true,
 			Components: []csmv1.ContainerTemplate{
 				{
@@ -1874,60 +2007,13 @@ func getAuthProxyServerOCP() []csmv1.Module {
 					Name:              "redis",
 					RedisStorageClass: "test-storage",
 				},
-			},
-		},
-	}
-}
-
-func getAppMob() []csmv1.Module {
-	return []csmv1.Module{
-		{
-			Name:          csmv1.ApplicationMobility,
-			Enabled:       true,
-			ConfigVersion: "v1.2.0",
-			Components: []csmv1.ContainerTemplate{
 				{
-					Name:    "application-mobility-controller-manager",
-					Enabled: &[]bool{true}[0],
-					Envs: []corev1.EnvVar{
-						{
-							Name:  "APPLICATION_MOBILITY_REPLICA_COUNT",
-							Value: "1",
-						},
-					},
-				},
-				{
-					Name:    "cert-manager",
-					Enabled: &[]bool{true}[0],
-				},
-				{
-					Name:    "velero",
-					Enabled: &[]bool{true}[0],
-					Envs: []corev1.EnvVar{
-						{
-							Name:  "BACKUPSTORAGELOCATION_NAME",
-							Value: "default",
-						},
-						{
-							Name:  "CONFIG_PROVIDER",
-							Value: "aws",
-						},
-						{
-							Name:  "BUCKET_NAME",
-							Value: "velero-bucket",
-						},
-						{
-							Name:  "VOL_SNAPSHOT_LOCATION_NAME",
-							Value: "default",
-						},
-						{
-							Name:  "BACKUP_STORAGE_URL",
-							Value: "localhost:8000",
-						},
+					Name: "storage-system-credentials",
+					SecretProviderClasses: &csmv1.StorageSystemSecretProviderClasses{
+						Vaults: []string{"secret-provider-class-1", "secret-provider-class-2"},
 					},
 				},
 			},
-			ForceRemoveModule: true,
 		},
 	}
 }
@@ -1937,7 +2023,7 @@ func getReverseProxyModule() []csmv1.Module {
 		{
 			Name:          csmv1.ReverseProxy,
 			Enabled:       true,
-			ConfigVersion: "v2.11.0",
+			ConfigVersion: "v2.13.0",
 			Components: []csmv1.ContainerTemplate{
 				{
 					Name:    string(csmv1.ReverseProxyServer),
@@ -2018,7 +2104,7 @@ func (suite *CSMControllerTestSuite) TestReconcileObservabilityError() {
 	csm := shared.MakeCSM(csmName, suite.namespace, configVersion)
 	csm.Spec.Modules = getObservabilityModule()
 	reconciler := suite.createReconciler()
-	badOperatorConfig := utils.OperatorConfig{
+	badOperatorConfig := operatorutils.OperatorConfig{
 		ConfigDirectory: "../in-valid-path",
 	}
 	err := reconciler.reconcileObservability(ctx, false, badOperatorConfig, csm, nil, suite.fakeClient, suite.k8sClient)
@@ -2098,7 +2184,7 @@ func (suite *CSMControllerTestSuite) TestReconcileAuthorization() {
 	csm := shared.MakeCSM(csmName, suite.namespace, shared.AuthServerConfigVersion)
 	csm.Spec.Modules = getAuthProxyServer()
 	reconciler := suite.createReconciler()
-	badOperatorConfig := utils.OperatorConfig{
+	badOperatorConfig := operatorutils.OperatorConfig{
 		ConfigDirectory: "../in-valid-path",
 	}
 
@@ -2155,86 +2241,6 @@ func (suite *CSMControllerTestSuite) TestReconcileAuthorizationBadCert() {
 	csm.Spec.Modules[0].Components = goodModules
 }
 
-func (suite *CSMControllerTestSuite) TestReconcileAppMob() {
-	csm := shared.MakeCSM(csmName, suite.namespace, configVersion)
-	csm.Spec.Modules = getAppMob()
-	reconciler := suite.createReconciler()
-	badOperatorConfig := utils.OperatorConfig{
-		ConfigDirectory: "../in-valid-path",
-	}
-	goodOperatorConfig := utils.OperatorConfig{
-		ConfigDirectory: "../operatorconfig",
-	}
-	err := reconciler.reconcileAppMobility(ctx, false, badOperatorConfig, csm, suite.fakeClient)
-	assert.NotNil(suite.T(), err)
-
-	defer func() {
-		getCRError = false
-		apiFailFunc = nil
-	}()
-
-	apiFailFunc = func(method string, obj runtime.Object) error {
-		v, ok := obj.(*corev1.Service)
-		if ok && method == "Get" && v.Name == "application-mobility-controller-manager-metrics-service" {
-			return errors.New("emulated get Service error")
-		}
-		return nil
-	}
-	err = reconciler.reconcileAppMobility(ctx, false, goodOperatorConfig, csm, suite.fakeClient)
-	assert.NotNil(suite.T(), err)
-
-	apiFailFunc = func(method string, obj runtime.Object) error {
-		v, ok := obj.(*corev1.Service)
-		if ok && method == "Get" && v.Name == "cert-manager" {
-			return errors.New("emulated get Service error")
-		}
-		return nil
-	}
-	err = reconciler.reconcileAppMobility(ctx, false, goodOperatorConfig, csm, suite.fakeClient)
-	assert.NotNil(suite.T(), err)
-	apiFailFunc = nil
-
-	apiFailFunc = func(method string, obj runtime.Object) error {
-		v, ok := obj.(*appsv1.Deployment)
-		if ok && method == "Get" && v.Name == "application-mobility-controller-manager" {
-			return errors.New("emulated get Deployment error")
-		}
-		return nil
-	}
-	err = reconciler.reconcileAppMobility(ctx, false, goodOperatorConfig, csm, suite.fakeClient)
-	assert.NotNil(suite.T(), err)
-	apiFailFunc = nil
-
-	apiFailFunc = func(method string, obj runtime.Object) error {
-		if method == "Create" && obj.GetObjectKind().GroupVersionKind().Kind == "BackupStorageLocation" {
-			return errors.New("emulated create BackupStorageLocation error")
-		}
-		return nil
-	}
-	err = reconciler.reconcileAppMobility(ctx, false, goodOperatorConfig, csm, suite.fakeClient)
-	assert.NotNil(suite.T(), err)
-
-	er := reconciler.reconcileAppMobilityCRDS(ctx, badOperatorConfig, csm, suite.fakeClient)
-	assert.NotNil(suite.T(), er)
-
-	csm.Spec.Modules[0].Components[0].Enabled = &[]bool{false}[0]
-	err = reconciler.reconcileAppMobility(ctx, false, badOperatorConfig, csm, suite.fakeClient)
-	assert.NotNil(suite.T(), err)
-
-	csm.Spec.Modules[0].Components[1].Enabled = &[]bool{false}[0]
-	err = reconciler.reconcileAppMobility(ctx, false, badOperatorConfig, csm, suite.fakeClient)
-	assert.Error(suite.T(), err)
-
-	csm.Spec.Modules[0].Components[2].Enabled = &[]bool{false}[0]
-	err = reconciler.reconcileAppMobility(ctx, false, goodOperatorConfig, csm, suite.fakeClient)
-	assert.Nil(suite.T(), err)
-
-	// Restore the status
-	for _, c := range csm.Spec.Modules[0].Components {
-		c.Enabled = &[]bool{false}[0]
-	}
-}
-
 // helper method to create k8s objects
 func (suite *CSMControllerTestSuite) makeFakeCSM(name, ns string, withFinalizer bool, modules []csmv1.Module) {
 	// make pre-requisite secrets
@@ -2263,7 +2269,7 @@ func (suite *CSMControllerTestSuite) makeFakeCSM(name, ns string, withFinalizer 
 	assert.Nil(suite.T(), err)
 
 	// replication secrets
-	sec = shared.MakeSecret("skip-replication-cluster-check", utils.ReplicationControllerNameSpace, configVersion)
+	sec = shared.MakeSecret("skip-replication-cluster-check", operatorutils.ReplicationControllerNameSpace, configVersion)
 	err = suite.fakeClient.Create(ctx, sec)
 	assert.Nil(suite.T(), err)
 
@@ -2334,75 +2340,6 @@ func (suite *CSMControllerTestSuite) makeFakeResiliencyCSM(name, ns string, with
 	csm.Spec.Modules = modules
 	out, _ := json.Marshal(&csm)
 	csm.Annotations[previouslyAppliedCustomResource] = string(out)
-
-	err = suite.fakeClient.Create(ctx, &csm)
-	assert.Nil(suite.T(), err)
-}
-
-// helper method to create k8s objects
-func (suite *CSMControllerTestSuite) makeFakeAppMobCSM(name, ns string, _ []csmv1.Module) {
-	// this secret required by application-mobility module
-
-	sec := shared.MakeSecret("cloud-creds", ns, appMobConfigVersion)
-	err := suite.fakeClient.Create(ctx, sec)
-	assert.Nil(suite.T(), err)
-
-	// this secret required by application-mobility module
-
-	sec = shared.MakeSecret("dls-license", "default", appMobConfigVersion)
-	err = suite.fakeClient.Create(ctx, sec)
-	assert.Nil(suite.T(), err)
-
-	// this secret required by application-mobility module
-	sec = shared.MakeSecret("iv", "default", appMobConfigVersion)
-	err = suite.fakeClient.Create(ctx, sec)
-	assert.Nil(suite.T(), err)
-
-	// this secret required by application-mobility module
-	sec = shared.MakeSecret("velero-restic-credentials", ns, appMobConfigVersion)
-	err = suite.fakeClient.Create(ctx, sec)
-	assert.Nil(suite.T(), err)
-
-	// this secret required by application-mobility module
-	sec = shared.MakeSecret("cert-manager-webhook-ca", ns, appMobConfigVersion)
-	err = suite.fakeClient.Create(ctx, sec)
-	assert.Nil(suite.T(), err)
-
-	csm := shared.MakeModuleCSM(name, ns, appMobConfigVersion)
-
-	csm.Spec.Modules = getAppMob()
-	csm.Spec.Modules[0].ForceRemoveModule = true
-
-	err = suite.fakeClient.Create(ctx, &csm)
-	assert.Nil(suite.T(), err)
-}
-
-func (suite *CSMControllerTestSuite) makeFakeAppMobFailCSM(name, ns string, _ []csmv1.Module) {
-	// this secret required by application-mobility module
-
-	sec := shared.MakeSecret("cloud-creds", ns, appMobConfigVersion)
-	err := suite.fakeClient.Create(ctx, sec)
-	assert.Nil(suite.T(), err)
-
-	// this secret required by application-mobility module
-	sec = shared.MakeSecret("iv", "default", appMobConfigVersion)
-	err = suite.fakeClient.Create(ctx, sec)
-	assert.Nil(suite.T(), err)
-
-	// this secret required by application-mobility module
-	sec = shared.MakeSecret("velero-restic-credentials", ns, appMobConfigVersion)
-	err = suite.fakeClient.Create(ctx, sec)
-	assert.Nil(suite.T(), err)
-
-	// this secret required by application-mobility module
-	sec = shared.MakeSecret("cert-manager-webhook-ca", ns, appMobConfigVersion)
-	err = suite.fakeClient.Create(ctx, sec)
-	assert.Nil(suite.T(), err)
-
-	csm := shared.MakeModuleCSM(name, ns, appMobConfigVersion)
-
-	csm.Spec.Modules = getAppMob()
-	csm.Spec.Modules[0].ForceRemoveModule = true
 
 	err = suite.fakeClient.Create(ctx, &csm)
 	assert.Nil(suite.T(), err)
@@ -2678,7 +2615,186 @@ func (suite *CSMControllerTestSuite) TestZoneValidation2() {
 func (suite *CSMControllerTestSuite) TestReconcileReplicationCRDSReturnError() {
 	csm := shared.MakeCSM(csmName, suite.namespace, configVersion)
 	reconciler := suite.createReconciler()
-	err := reconciler.reconcileReplicationCRDS(ctx, utils.OperatorConfig{}, csm, suite.fakeClient)
+	err := reconciler.reconcileReplicationCRDS(ctx, operatorutils.OperatorConfig{}, csm, suite.fakeClient)
 	assert.NotNil(suite.T(), err)
 	assert.ErrorContains(suite.T(), err, "unable to reconcile replication CRDs")
+}
+
+// customClient is our custom client that we will pass to removeDriverFromCluster
+// this lets us control what Delete/Get/ etc returns from within removeDriverFromCluster
+type customClient struct {
+	client.Client
+}
+
+// Delete method is modified to return an error when the name contains "failed-deletion"
+// this lets us control when to return an error from removeDriverFromCluster
+func (c customClient) Delete(_ context.Context, obj client.Object, _ ...client.DeleteOption) error {
+	if strings.Contains(obj.GetName(), "failed-deletion") {
+		return fmt.Errorf("failed to delete: %s", obj.GetName())
+	}
+	return nil
+}
+
+// Get method is modified to always return no error
+// This is so we can test out errors when an object exists but cannot be deleted
+func (c customClient) Get(_ context.Context, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+	return nil
+}
+
+// this test tries running removeDriverFromCluster when different components fail to delete
+func Test_removeDriverFromCluster(t *testing.T) {
+	cluster := operatorutils.ClusterConfig{
+		ClusterID: "test",
+		ClusterCTRLClient: customClient{
+			Client: fake.NewClientBuilder().Build(),
+		},
+	}
+
+	ctx := context.TODO()
+	type args struct {
+		driverConfig *DriverConfig
+	}
+	tests := []struct {
+		name         string
+		driverConfig *DriverConfig
+		expectedErr  string
+	}{
+		{
+			name: "Fail to delete controller service account",
+
+			driverConfig: &DriverConfig{
+				Driver:    &storagev1.CSIDriver{},
+				ConfigMap: &corev1.ConfigMap{},
+				Node:      &operatorutils.NodeYAML{},
+				Controller: &operatorutils.ControllerYAML{
+					Rbac: operatorutils.RbacYAML{
+						ServiceAccount: corev1.ServiceAccount{
+							TypeMeta: metav1.TypeMeta{
+								Kind:       "ServiceAccount",
+								APIVersion: "v1",
+							},
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "failed-deletion-controller-service-account",
+							},
+						},
+					},
+				},
+			},
+			expectedErr: "failed to delete",
+		},
+		{
+			name: "Fail to delete controller cluster role",
+			driverConfig: &DriverConfig{
+				Driver:    &storagev1.CSIDriver{},
+				ConfigMap: &corev1.ConfigMap{},
+				Node:      &operatorutils.NodeYAML{},
+				Controller: &operatorutils.ControllerYAML{
+					Rbac: operatorutils.RbacYAML{
+						ClusterRole: rbacv1.ClusterRole{
+							TypeMeta: metav1.TypeMeta{
+								Kind:       "ClusterRole",
+								APIVersion: "rbac.authorization.k8s.io/v1",
+							},
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "failed-deletion-controller-cluster-role",
+							},
+							Rules: []rbacv1.PolicyRule{
+								{
+									APIGroups: []string{""},
+									Resources: []string{"pods"},
+									Verbs:     []string{"get", "watch", "list"},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedErr: "failed to delete",
+		},
+		{
+			name: "Fail to delete controller cluster role binding",
+			driverConfig: &DriverConfig{
+				Driver:    &storagev1.CSIDriver{},
+				ConfigMap: &corev1.ConfigMap{},
+				Node:      &operatorutils.NodeYAML{},
+				Controller: &operatorutils.ControllerYAML{
+					Rbac: operatorutils.RbacYAML{
+						ClusterRoleBinding: rbacv1.ClusterRoleBinding{
+							TypeMeta: metav1.TypeMeta{
+								Kind:       "ClusterRole",
+								APIVersion: "rbac.authorization.k8s.io/v1",
+							},
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "failed-deletion-controller-cluster-role-binding",
+							},
+						},
+					},
+				},
+			},
+			expectedErr: "failed to delete",
+		},
+		{
+			name: "Fail to delete controller role",
+			driverConfig: &DriverConfig{
+				Driver:    &storagev1.CSIDriver{},
+				ConfigMap: &corev1.ConfigMap{},
+				Node:      &operatorutils.NodeYAML{},
+				Controller: &operatorutils.ControllerYAML{
+					Rbac: operatorutils.RbacYAML{
+						Role: rbacv1.Role{
+							TypeMeta: metav1.TypeMeta{
+								Kind:       "ClusterRole",
+								APIVersion: "rbac.authorization.k8s.io/v1",
+							},
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "failed-deletion-controller-cluster-role",
+							},
+							Rules: []rbacv1.PolicyRule{
+								{
+									APIGroups: []string{""},
+									Resources: []string{"pods"},
+									Verbs:     []string{"get", "watch", "list"},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedErr: "failed to delete",
+		},
+		{
+			name: "Fail to delete controller role binding",
+			driverConfig: &DriverConfig{
+				Driver:    &storagev1.CSIDriver{},
+				ConfigMap: &corev1.ConfigMap{},
+				Node:      &operatorutils.NodeYAML{},
+				Controller: &operatorutils.ControllerYAML{
+					Rbac: operatorutils.RbacYAML{
+						RoleBinding: rbacv1.RoleBinding{
+							TypeMeta: metav1.TypeMeta{
+								Kind:       "ClusterRole",
+								APIVersion: "rbac.authorization.k8s.io/v1",
+							},
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "failed-deletion-controller-cluster-role-binding",
+							},
+						},
+					},
+				},
+			},
+			expectedErr: "failed to delete",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := removeDriverFromCluster(ctx, cluster, tt.driverConfig)
+			if tt.expectedErr == "" {
+				if err != nil {
+					t.Errorf("removeDriverFromCluster() returned error = %v, but no error was expected", err)
+				}
+			} else {
+				assert.Containsf(t, err.Error(), tt.expectedErr, "expected error containing %q, got %s", tt.expectedErr, err)
+			}
+		})
+	}
 }

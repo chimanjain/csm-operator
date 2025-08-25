@@ -22,7 +22,7 @@ import (
 
 	csmv1 "github.com/dell/csm-operator/api/v1"
 	"github.com/dell/csm-operator/pkg/logger"
-	"github.com/dell/csm-operator/pkg/utils"
+	operatorutils "github.com/dell/csm-operator/pkg/operatorutils"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/client-go/applyconfigurations/apps/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -80,11 +80,31 @@ const (
 
 	// PowerFlexSdcRepoEnabled - will be used to control the GOSCALEIO_SHOWHTTP variable
 	PowerFlexSdcRepoEnabled string = "<X_CSI_SDC_SFTP_REPO_ENABLED>"
+
+	// PowerFlexProbeTimeout - will be used to control the X_CSI_PROBE_TIMEOUT variable
+	PowerFlexProbeTimeout string = "<X_CSI_PROBE_TIMEOUT>"
 )
 
 // PrecheckPowerFlex do input validation
-func PrecheckPowerFlex(ctx context.Context, cr *csmv1.ContainerStorageModule, operatorConfig utils.OperatorConfig, ct client.Client) error {
+func PrecheckPowerFlex(ctx context.Context, cr *csmv1.ContainerStorageModule, operatorConfig operatorutils.OperatorConfig, ct client.Client) error {
 	log := logger.GetLogger(ctx)
+
+	const (
+		Authorization csmv1.ModuleType = "authorization"
+		Replication   csmv1.ModuleType = "replication"
+	)
+
+	// Check if both Authorization and Replication modules are enabled
+	authEnabled := isModuleEnabled(cr.Spec.Modules, Authorization)
+	replEnabled := isModuleEnabled(cr.Spec.Modules, Replication)
+
+	if authEnabled && replEnabled {
+		prefix := getVolumeNamePrefix(cr.Spec.Driver.SideCars)
+		if len(prefix) > 5 {
+			log.Errorw("PreCheckPowerFlex failed: Volume name prefix too long", "prefix", prefix)
+			return fmt.Errorf("volume name prefix '%s' cannot exceed 5 characters when both Authorization and Replication modules are enabled", prefix)
+		}
+	}
 
 	// Check if driver version is supported by doing a stat on a config file
 	configFilePath := fmt.Sprintf("%s/driverconfig/%s/%s/upgrade-path.yaml", operatorConfig.ConfigDirectory, csmv1.PowerFlex, cr.Spec.Driver.ConfigVersion)
@@ -100,6 +120,30 @@ func PrecheckPowerFlex(ctx context.Context, cr *csmv1.ContainerStorageModule, op
 	}
 
 	return nil
+}
+
+// isModuleEnabled checks if a module is enabled in the list
+func isModuleEnabled(modules []csmv1.Module, name csmv1.ModuleType) bool {
+	for _, m := range modules {
+		if m.Name == name && m.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+// getVolumeNamePrefix extracts the volume name prefix from the provisioner sidecar args
+func getVolumeNamePrefix(sideCars []csmv1.ContainerTemplate) string {
+	for _, sc := range sideCars {
+		if sc.Name == "provisioner" {
+			for _, arg := range sc.Args {
+				if strings.HasPrefix(arg, "--volume-name-prefix=") {
+					return strings.TrimPrefix(arg, "--volume-name-prefix=")
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func SetSDCinitContainers(ctx context.Context, cr csmv1.ContainerStorageModule, ct client.Client) (csmv1.ContainerStorageModule, error) {
@@ -188,7 +232,7 @@ func SetSDCinitContainers(ctx context.Context, cr csmv1.ContainerStorageModule, 
 func GetMDMFromSecret(ctx context.Context, cr *csmv1.ContainerStorageModule, ct client.Client) (string, error) {
 	log := logger.GetLogger(ctx)
 	secretName := cr.Name + "-config"
-	credSecret, err := utils.GetSecret(ctx, secretName, cr.GetNamespace(), ct)
+	credSecret, err := operatorutils.GetSecret(ctx, secretName, cr.GetNamespace(), ct)
 	if err != nil {
 		return "", fmt.Errorf("reading secret [%s] error [%s]", secretName, err)
 	}
@@ -312,6 +356,7 @@ func ModifyPowerflexCR(yamlString string, cr csmv1.ContainerStorageModule, fileT
 	sftpRepoAddress := "sftp://0.0.0.0"
 	sftpRepoUser := ""
 	sftpEnabled := ""
+	probeTimeout := "10s"
 
 	if cr.Spec.Driver.Common != nil {
 		for _, env := range cr.Spec.Driver.Common.Envs {
@@ -320,6 +365,9 @@ func ModifyPowerflexCR(yamlString string, cr csmv1.ContainerStorageModule, fileT
 			}
 			if env.Name == "GOSCALEIO_SHOWHTTP" {
 				showHTTP = env.Value
+			}
+			if env.Name == "X_CSI_PROBE_TIMEOUT" {
+				probeTimeout = env.Value
 			}
 		}
 	}
@@ -342,6 +390,7 @@ func ModifyPowerflexCR(yamlString string, cr csmv1.ContainerStorageModule, fileT
 		yamlString = strings.ReplaceAll(yamlString, PowerFlexCSMNameSpace, cr.Namespace)
 		yamlString = strings.ReplaceAll(yamlString, PowerFlexDebug, debug)
 		yamlString = strings.ReplaceAll(yamlString, PowerFlexShowHTTP, showHTTP)
+		yamlString = strings.ReplaceAll(yamlString, PowerFlexProbeTimeout, probeTimeout)
 
 	case "Node":
 		if cr.Spec.Driver.Node != nil {
@@ -387,6 +436,7 @@ func ModifyPowerflexCR(yamlString string, cr csmv1.ContainerStorageModule, fileT
 		yamlString = strings.ReplaceAll(yamlString, PowerFlexSftpRepoAddress, sftpRepoAddress)
 		yamlString = strings.ReplaceAll(yamlString, PowerFlexSftpRepoUser, sftpRepoUser)
 		yamlString = strings.ReplaceAll(yamlString, PowerFlexSdcRepoEnabled, sftpEnabled)
+		yamlString = strings.ReplaceAll(yamlString, PowerFlexProbeTimeout, probeTimeout)
 
 	case "CSIDriverSpec":
 		if cr.Spec.Driver.CSIDriverSpec != nil && cr.Spec.Driver.CSIDriverSpec.StorageCapacity {
@@ -409,7 +459,7 @@ func ValidateZones(ctx context.Context, cr *csmv1.ContainerStorageModule, ct cli
 func ValidateZonesInSecret(ctx context.Context, kube client.Client, namespace string, secret string) error {
 	log := logger.GetLogger(ctx)
 
-	arraySecret, err := utils.GetSecret(ctx, secret, namespace, kube)
+	arraySecret, err := operatorutils.GetSecret(ctx, secret, namespace, kube)
 	if err != nil {
 		return fmt.Errorf("reading secret [%s] error %v", secret, err)
 	}

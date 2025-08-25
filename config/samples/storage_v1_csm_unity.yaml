@@ -17,7 +17,7 @@ spec:
       #   true: enable storage capacity tracking
       #   false: disable storage capacity tracking
       storageCapacity: true
-    configVersion: v2.14.0
+    configVersion: v2.15.0
     # Controller count
     # Allowed values: n, where n > 0
     # Default value: 2
@@ -25,7 +25,7 @@ spec:
     dnsPolicy: ClusterFirstWithHostNet
     forceRemoveDriver: true
     common:
-      image: "quay.io/dell/container-storage-modules/csi-unity:v2.14.0"
+      image: "quay.io/dell/container-storage-modules/csi-unity:nightly"
       imagePullPolicy: IfNotPresent
       envs:
         # X_CSI_UNITY_ALLOW_MULTI_POD_ACCESS - Flag to enable sharing of volumes across multiple pods within the same node in RWO access mode.

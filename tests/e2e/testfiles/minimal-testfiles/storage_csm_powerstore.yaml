@@ -5,11 +5,24 @@ metadata:
   namespace: powerstore
 spec:
   driver:
+    # resiliency test will fail with 2 replicas.
+    replicas: 1
     csiDriverType: "powerstore"
-    configVersion: v2.14.0
+    configVersion: v2.15.0
     common:
       image: "quay.io/dell/container-storage-modules/csi-powerstore:nightly"
       imagePullPolicy: Always
   modules:
     - name: resiliency
       enabled: false
+    - name: replication
+      enabled: false
+    - name: observability
+      enabled: false
+      components:
+        - name: otel-collector
+          enabled: false
+        - name: cert-manager
+          enabled: false
+        - name: metrics-powerstore
+          enabled: false

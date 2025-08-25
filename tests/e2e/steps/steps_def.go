@@ -15,8 +15,8 @@ package steps
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -26,14 +26,14 @@ import (
 	"time"
 
 	csmv1 "github.com/dell/csm-operator/api/v1"
-
 	"github.com/dell/csm-operator/pkg/constants"
 	"github.com/dell/csm-operator/pkg/modules"
-	"github.com/dell/csm-operator/pkg/utils"
+	operatorutils "github.com/dell/csm-operator/pkg/operatorutils"
 	"golang.org/x/mod/semver"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	acorev1 "k8s.io/client-go/applyconfigurations/core/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -55,10 +55,10 @@ var (
 	operatorNamespace = "dell-csm-operator"
 	quotaLimit        = "100000000"
 	pflexSecretMap    = map[string]string{
-		"REPLACE_USER": "PFLEX_USER", "REPLACE_PASS": "PFLEX_PASS", "REPLACE_SYSTEMID": "PFLEX_SYSTEMID", "REPLACE_ENDPOINT": "PFLEX_ENDPOINT", "REPLACE_MDM": "PFLEX_MDM", "REPLACE_POOL": "PFLEX_POOL", "REPLACE_NAS": "PFLEX_NAS",
+		"REPLACE_USER": "PFLEX_USER", "REPLACE_PASS": "PFLEX_PASS", "REPLACE_SYSTEMID": "PFLEX_SYSTEMID", "REPLACE_ENDPOINT": "PFLEX_ENDPOINT", "REPLACE_MDM": "PFLEX_MDM", "REPLACE_POOL": "PFLEX_POOL", "REPLACE_NAS": "PFLEX_NAS", "REPLACE_SFTP_REPO_ADDRESS": "PFLEX_SFTP_REPO_ADDRESS", "REPLACE_SFTP_REPO_USER": "PFLEX_SFTP_REPO_USER",
 		"REPLACE_ZONING_USER": "PFLEX_ZONING_USER", "REPLACE_ZONING_PASS": "PFLEX_ZONING_PASS", "REPLACE_ZONING_SYSTEMID": "PFLEX_ZONING_SYSTEMID", "REPLACE_ZONING_ENDPOINT": "PFLEX_ZONING_ENDPOINT", "REPLACE_ZONING_MDM": "PFLEX_ZONING_MDM", "REPLACE_ZONING_POOL": "PFLEX_ZONING_POOL", "REPLACE_ZONING_NAS": "PFLEX_ZONING_NAS",
 	}
-	pflexAuthSecretMap       = map[string]string{"REPLACE_USER": "PFLEX_USER", "REPLACE_SYSTEMID": "PFLEX_SYSTEMID", "REPLACE_ENDPOINT": "PFLEX_AUTH_ENDPOINT", "REPLACE_MDM": "PFLEX_MDM"}
+	pflexAuthSecretMap       = map[string]string{"REPLACE_USER": "PFLEX_USER", "REPLACE_PASS": "PFLEX_PASS", "REPLACE_SYSTEMID": "PFLEX_SYSTEMID", "REPLACE_ENDPOINT": "PFLEX_AUTH_ENDPOINT", "REPLACE_MDM": "PFLEX_MDM"}
 	pscaleSecretMap          = map[string]string{"REPLACE_CLUSTERNAME": "PSCALE_CLUSTER", "REPLACE_USER": "PSCALE_USER", "REPLACE_PASS": "PSCALE_PASS", "REPLACE_ENDPOINT": "PSCALE_ENDPOINT", "REPLACE_PORT": "PSCALE_PORT", "REPLACE_MULTI_CLUSTERNAME": "PSCALE_MULTI_CLUSTER", "REPLACE_MULTI_USER": "PSCALE_MULTI_USER", "REPLACE_MULTI_PASS": "PSCALE_MULTI_PASS", "REPLACE_MULTI_ENDPOINT": "PSCALE_MULTI_ENDPOINT", "REPLACE_MULTI_PORT": "PSCALE_MULTI_PORT", "REPLACE_MULTI_AUTH_ENDPOINT": "PSCALE_MULTI_AUTH_ENDPOINT", "REPLACE_MULTI_AUTH_PORT": "PSCALE_MULTI_AUTH_PORT"}
 	pscaleAuthSecretMap      = map[string]string{"REPLACE_CLUSTERNAME": "PSCALE_CLUSTER", "REPLACE_USER": "PSCALE_USER", "REPLACE_PASS": "PSCALE_PASS", "REPLACE_AUTH_ENDPOINT": "PSCALE_AUTH_ENDPOINT", "REPLACE_AUTH_PORT": "PSCALE_AUTH_PORT", "REPLACE_ENDPOINT": "PSCALE_ENDPOINT", "REPLACE_PORT": "PSCALE_PORT"}
 	pscaleAuthSidecarMap     = map[string]string{"REPLACE_CLUSTERNAME": "PSCALE_CLUSTER", "REPLACE_ENDPOINT": "PSCALE_ENDPOINT", "REPLACE_AUTH_ENDPOINT": "PSCALE_AUTH_ENDPOINT", "REPLACE_AUTH_PORT": "PSCALE_AUTH_PORT", "REPLACE_PORT": "PSCALE_PORT"}
@@ -74,16 +74,18 @@ var (
 	pmaxStorageMap         = map[string]string{"REPLACE_SYSTEMID": "PMAX_SYSTEMID", "REPLACE_RESOURCE_POOL": "PMAX_POOL_V1", "REPLACE_SERVICE_LEVEL": "PMAX_SERVICE_LEVEL"}
 	pmaxReverseProxyMap    = map[string]string{"REPLACE_SYSTEMID": "PMAX_SYSTEMID", "REPLACE_AUTH_ENDPOINT": "PMAX_AUTH_ENDPOINT"}
 	authSidecarRootCertMap = map[string]string{}
-	amConfigMap            = map[string]string{"REPLACE_ALT_BUCKET_NAME": "ALT_BUCKET_NAME", "REPLACE_BUCKET_NAME": "BUCKET_NAME", "REPLACE_S3URL": "BACKEND_STORAGE_URL", "REPLACE_CONTROLLER_IMAGE": "AM_CONTROLLER_IMAGE", "REPLACE_PLUGIN_IMAGE": "AM_PLUGIN_IMAGE"}
 	pmaxArrayConfigMap     = map[string]string{"REPLACE_PORTGROUPS": "PMAX_PORTGROUPS", "REPLACE_PROTOCOL": "PMAX_PROTOCOL", "REPLACE_ARRAYS": "PMAX_ARRAYS", "REPLACE_ENDPOINT": "PMAX_ENDPOINT"}
 	pmaxAuthArrayConfigMap = map[string]string{"REPLACE_PORTGROUPS": "PMAX_PORTGROUPS", "REPLACE_PROTOCOL": "PMAX_PROTOCOL", "REPLACE_ARRAYS": "PMAX_ARRAYS", "REPLACE_ENDPOINT": "PMAX_AUTH_ENDPOINT"}
 	// Auth V2
-	pflexCrMap  = map[string]string{"REPLACE_STORAGE_NAME": "PFLEX_STORAGE", "REPLACE_STORAGE_TYPE": "PFLEX_STORAGE", "REPLACE_ENDPOINT": "PFLEX_ENDPOINT", "REPLACE_SYSTEM_ID": "PFLEX_SYSTEMID", "REPLACE_VAULT_STORAGE_PATH": "PFLEX_VAULT_STORAGE_PATH", "REPLACE_ROLE_NAME": "PFLEX_ROLE", "REPLACE_QUOTA": "PFLEX_QUOTA", "REPLACE_STORAGE_POOL_PATH": "PFLEX_POOL", "REPLACE_TENANT_NAME": "PFLEX_TENANT", "REPLACE_TENANT_ROLES": "PFLEX_ROLE", "REPLACE_TENANT_VOLUME_PREFIX": "PFLEX_TENANT_PREFIX"}
-	pscaleCrMap = map[string]string{"REPLACE_STORAGE_NAME": "PSCALE_STORAGE", "REPLACE_STORAGE_TYPE": "PSCALE_STORAGE", "REPLACE_ENDPOINT": "PSCALE_ENDPOINT", "REPLACE_SYSTEM_ID": "PSCALE_CLUSTER", "REPLACE_VAULT_STORAGE_PATH": "PSCALE_VAULT_STORAGE_PATH", "REPLACE_ROLE_NAME": "PSCALE_ROLE", "REPLACE_QUOTA": "PSCALE_QUOTA", "REPLACE_STORAGE_POOL_PATH": "PSCALE_POOL_V2", "REPLACE_TENANT_NAME": "PSCALE_TENANT", "REPLACE_TENANT_ROLES": "PSCALE_ROLE", "REPLACE_TENANT_VOLUME_PREFIX": "PSCALE_TENANT_PREFIX"}
-	pmaxCrMap   = map[string]string{"REPLACE_STORAGE_NAME": "PMAX_STORAGE", "REPLACE_STORAGE_TYPE": "PMAX_STORAGE", "REPLACE_ENDPOINT": "PMAX_ENDPOINT", "REPLACE_SYSTEM_ID": "PMAX_SYSTEMID", "REPLACE_VAULT_STORAGE_PATH": "PMAX_VAULT_STORAGE_PATH", "REPLACE_ROLE_NAME": "PMAX_ROLE", "REPLACE_QUOTA": "PMAX_QUOTA", "REPLACE_STORAGE_POOL_PATH": "PMAX_POOL_V2", "REPLACE_TENANT_NAME": "PMAX_TENANT", "REPLACE_TENANT_ROLES": "PMAX_ROLE", "REPLACE_TENANT_VOLUME_PREFIX": "PMAX_TENANT_PREFIX"}
+	pflexCrMap  = map[string]string{"REPLACE_STORAGE_NAME": "PFLEX_STORAGE", "REPLACE_STORAGE_TYPE": "PFLEX_STORAGE", "REPLACE_ENDPOINT": "PFLEX_ENDPOINT", "REPLACE_SYSTEM_ID": "PFLEX_SYSTEMID", "REPLACE_VAULT_STORAGE_PATH": "PFLEX_VAULT_STORAGE_PATH", "REPLACE_ROLE_NAME": "PFLEX_ROLE", "REPLACE_QUOTA": "PFLEX_QUOTA", "REPLACE_STORAGE_POOL_PATH": "PFLEX_POOL", "REPLACE_TENANT_NAME": "PFLEX_TENANT", "REPLACE_TENANT_ROLES": "PFLEX_ROLE", "REPLACE_TENANT_VOLUME_PREFIX": "PFLEX_TENANT_PREFIX", "REPLACE_USERNAME_OBJECT_NAME": "secrets/powerflex-username", "REPLACE_PASSWORD_OBJECT_NAME": "secrets/powerflex-password"}
+	pscaleCrMap = map[string]string{"REPLACE_STORAGE_NAME": "PSCALE_STORAGE", "REPLACE_STORAGE_TYPE": "PSCALE_STORAGE", "REPLACE_ENDPOINT": "PSCALE_ENDPOINT", "REPLACE_SYSTEM_ID": "PSCALE_CLUSTER", "REPLACE_VAULT_STORAGE_PATH": "PSCALE_VAULT_STORAGE_PATH", "REPLACE_ROLE_NAME": "PSCALE_ROLE", "REPLACE_QUOTA": "PSCALE_QUOTA", "REPLACE_STORAGE_POOL_PATH": "PSCALE_POOL_V2", "REPLACE_TENANT_NAME": "PSCALE_TENANT", "REPLACE_TENANT_ROLES": "PSCALE_ROLE", "REPLACE_TENANT_VOLUME_PREFIX": "PSCALE_TENANT_PREFIX", "REPLACE_USERNAME_OBJECT_NAME": "secrets/powerscale-username", "REPLACE_PASSWORD_OBJECT_NAME": "secrets/powerscale-password"}
+	pmaxCrMap   = map[string]string{"REPLACE_STORAGE_NAME": "PMAX_STORAGE", "REPLACE_STORAGE_TYPE": "PMAX_STORAGE", "REPLACE_ENDPOINT": "PMAX_ENDPOINT", "REPLACE_SYSTEM_ID": "PMAX_SYSTEMID", "REPLACE_VAULT_STORAGE_PATH": "PMAX_VAULT_STORAGE_PATH", "REPLACE_ROLE_NAME": "PMAX_ROLE", "REPLACE_QUOTA": "PMAX_QUOTA", "REPLACE_STORAGE_POOL_PATH": "PMAX_POOL_V2", "REPLACE_TENANT_NAME": "PMAX_TENANT", "REPLACE_TENANT_ROLES": "PMAX_ROLE", "REPLACE_TENANT_VOLUME_PREFIX": "PMAX_TENANT_PREFIX", "REPLACE_USERNAME_OBJECT_NAME": "secrets/powermax-username", "REPLACE_PASSWORD_OBJECT_NAME": "secrets/powermax-password"}
+	pstoreCrMap = map[string]string{"REPLACE_STORAGE_NAME": "PSTORE_STORAGE", "REPLACE_STORAGE_TYPE": "PSTORE_STORAGE", "REPLACE_ENDPOINT": "PSTORE_ENDPOINT", "REPLACE_SYSTEM_ID": "PSTORE_GLOBALID", "REPLACE_VAULT_STORAGE_PATH": "PSTORE_VAULT_STORAGE_PATH", "REPLACE_ROLE_NAME": "PSTORE_ROLE", "REPLACE_QUOTA": "PSTORE_QUOTA", "REPLACE_STORAGE_POOL_PATH": "PSTORE_POOL", "REPLACE_TENANT_NAME": "PSTORE_TENANT", "REPLACE_TENANT_ROLES": "PSTORE_ROLE", "REPLACE_TENANT_VOLUME_PREFIX": "PSTORE_TENANT_PREFIX", "REPLACE_USERNAME_OBJECT_NAME": "secrets/powerstore-username", "REPLACE_PASSWORD_OBJECT_NAME": "secrets/powerstore-password"}
 
 	pstoreSecretMap          = map[string]string{"REPLACE_USER": "PSTORE_USER", "REPLACE_PASS": "PSTORE_PASS", "REPLACE_GLOBALID": "PSTORE_GLOBALID", "REPLACE_ENDPOINT": "PSTORE_ENDPOINT", "REPLACE_PROTOCOL": "PSTORE_PROTOCOL"}
 	pstoreEphemeralVolumeMap = map[string]string{"REPLACE_GLOBALID": "PSTORE_GLOBALID"}
+	pstoreAuthSecretMap      = map[string]string{"REPLACE_USER": "PSTORE_USER", "REPLACE_PASS": "PSTORE_PASS", "REPLACE_GLOBALID": "PSTORE_GLOBALID", "REPLACE_ENDPOINT": "PSTORE_AUTH_ENDPOINT", "REPLACE_PROTOCOL": "PSTORE_PROTOCOL"}
+	pstoreAuthSidecarMap     = map[string]string{"REPLACE_USER": "PSTORE_USER", "REPLACE_PASS": "PSTORE_PASS", "REPLACE_GLOBALID": "PSTORE_GLOBALID", "REPLACE_ENDPOINT": "PSTORE_ENDPOINT", "REPLACE_AUTH_ENDPOINT": "PSTORE_AUTH_ENDPOINT"}
 	unitySecretMap           = map[string]string{"REPLACE_USER": "UNITY_USER", "REPLACE_PASS": "UNITY_PASS", "REPLACE_ARRAYID": "UNITY_ARRAYID", "REPLACE_ENDPOINT": "UNITY_ENDPOINT", "REPLACE_POOL": "UNITY_POOL", "REPLACE_NAS": "UNITY_NAS"}
 	unityEphemeralVolumeMap  = map[string]string{"REPLACE_ARRAYID": "UNITY_ARRAYID", "REPLACE_POOL": "UNITY_POOL", "REPLACE_NAS": "UNITY_NAS"}
 )
@@ -170,6 +172,111 @@ func (step *Step) applyCustomResource(res Resource, crNumStr string) error {
 	return nil
 }
 
+func (step *Step) applyAuthorizationConjur(res Resource, crNumStr string) error {
+	crNum, _ := strconv.Atoi(crNumStr)
+	cr := res.CustomResource[crNum-1].(csmv1.ContainerStorageModule)
+
+	crFilePath := res.Scenario.Paths[crNum-1]
+
+	// If the specified file is a template, assume it was rendered to a temporary file earlier.
+	// Attempt to read the rendered file first. If it doesn't exist, assume the specified file
+	// is not a template and should be applied as-is.
+
+	tempFilePath := getRenderedFilePath(crFilePath)
+	crBuff, err := os.ReadFile(tempFilePath) // #nosec G304
+	if os.IsNotExist(err) {
+		// There is no corresponding rendered file, use crFilePath
+		crBuff, err = os.ReadFile(crFilePath) // #nosec G304
+	}
+	if err != nil {
+		return fmt.Errorf("failed to read testdata: %v", err)
+	}
+
+	customResource := csmv1.ContainerStorageModule{}
+	err = yaml.Unmarshal(crBuff, &customResource)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal CSM custom resource: %v", err)
+	}
+
+	// set the conjur paths in the Authorization CR
+loop:
+	for moduleIndex, module := range customResource.Spec.Modules {
+		if module.Name == "authorization-proxy-server" {
+			for compIndex, comp := range module.Components {
+				if comp.Name == "storage-system-credentials" {
+					powerflexUsername := os.Getenv("PFLEX_USER")
+					powerflexPassword := os.Getenv("PFLEX_PASS")
+					powermaxUsername := os.Getenv("PMAX_USER")
+					powermaxPassword := os.Getenv("PMAX_PASS")
+					powerscaleUsername := os.Getenv("PSCALE_USER")
+					powerscalePassword := os.Getenv("PSCALE_PASS")
+
+					var conjurPaths []csmv1.ConjurCredentialPath
+					if powerflexUsername != "" && powerflexPassword != "" {
+						conjurPaths = append(conjurPaths, csmv1.ConjurCredentialPath{
+							UsernamePath: "secrets/powerflex-username",
+							PasswordPath: "secrets/powerflex-password",
+						})
+					}
+
+					if powermaxUsername != "" && powermaxPassword != "" {
+						conjurPaths = append(conjurPaths, csmv1.ConjurCredentialPath{
+							UsernamePath: "secrets/powermax-username",
+							PasswordPath: "secrets/powermax-password",
+						})
+					}
+
+					if powerscaleUsername != "" && powerscalePassword != "" {
+						conjurPaths = append(conjurPaths, csmv1.ConjurCredentialPath{
+							UsernamePath: "secrets/powerscale-username",
+							PasswordPath: "secrets/powerscale-password",
+						})
+					}
+
+					customResource.Spec.Modules[moduleIndex].Components[compIndex].SecretProviderClasses.Conjurs[0].Paths = conjurPaths
+					break loop
+				}
+			}
+		}
+	}
+
+	dataBytes := `
+CONCURRENT_STORAGE_REQUESTS: 10
+LOG_LEVEL: debug
+STORAGE_CAPACITY_POLL_INTERVAL: 30s`
+	cm := &corev1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ConfigMap",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "csm-config-params",
+			Namespace: "authorization",
+		},
+		Data: map[string]string{
+			"csm-config-params.yaml": dataBytes,
+		},
+	}
+
+	cmBuff, err := yaml.Marshal(cm)
+	if err != nil {
+		return fmt.Errorf("marshalling %s: %v", customResource.Name, err)
+	}
+
+	authBuff, err := yaml.Marshal(customResource)
+	if err != nil {
+		return fmt.Errorf("marshalling %s: %v", customResource.Name, err)
+	}
+
+	buff := string(cmBuff) + "\n---\n" + string(authBuff)
+
+	if _, err := kubectl.RunKubectlInput(cr.Namespace, buff, "apply", "--validate=true", "-f", "-"); err != nil {
+		return fmt.Errorf("failed to apply CR %s in namespace %s: %v", cr.Name, cr.Namespace, err)
+	}
+
+	return nil
+}
+
 func (step *Step) upgradeCustomResource(res Resource, oldCrNumStr, newCrNumStr string) error {
 	oldCrNum, _ := strconv.Atoi(oldCrNumStr)
 	oldCr := res.CustomResource[oldCrNum-1].(csmv1.ContainerStorageModule)
@@ -199,70 +306,7 @@ func (step *Step) installThirdPartyModule(_ Resource, thirdPartyModule string) e
 		if err != nil {
 			return fmt.Errorf("cert-manager install failed: %v", err)
 		}
-	} else if thirdPartyModule == "velero" {
-		cmd1 := exec.Command("helm", "repo", "add", "vmware-tanzu", "https://vmware-tanzu.github.io/helm-charts")
-		err1 := cmd1.Run()
-		if err1 != nil {
-			return fmt.Errorf("installation of velero %v failed", err1)
-		}
-
-		amNamespace := os.Getenv("AM_NS")
-		if amNamespace == "" {
-			amNamespace = "test-vxflexos"
-		}
-
-		// Cleanup backupstoragelocations and volumesnapshotlocation before installing velero
-		cmd := exec.Command("kubectl", "get", "backupstoragelocations.velero.io", "default", "-n", amNamespace) // #nosec G204
-		err := cmd.Run()
-		if err == nil {
-			cmd1 = exec.Command("kubectl", "delete", "backupstoragelocations.velero.io", "default", "-n", amNamespace) // #nosec G204
-			err1 = cmd1.Run()
-			if err1 != nil {
-				return fmt.Errorf("installation of velero failed: %v", err1)
-			}
-		}
-
-		cmd = exec.Command("kubectl", "get", "volumesnapshotlocations.velero.io", "default", "-n", amNamespace) // #nosec G204
-		err = cmd.Run()
-		if err == nil {
-			cmd1 = exec.Command("kubectl", "delete", "volumesnapshotlocations.velero.io", "default", "-n", amNamespace) // #nosec G204
-			err1 = cmd1.Run()
-			if err1 != nil {
-				return fmt.Errorf("installation of velero failed: %v", err1)
-			}
-		}
-
-		cmd2 := exec.Command("helm", "install", "velero", "vmware-tanzu/velero", "--namespace="+amNamespace, "--create-namespace",
-			"-f", getRenderedFilePath("testfiles/application-mobility-templates/velero-values.yaml")) // #nosec G204
-		err2 := cmd2.Run()
-		if err2 != nil {
-			return fmt.Errorf("installation of velero failed: %v", err2)
-		}
-	} else if thirdPartyModule == "sample-app" {
-
-		cmd := exec.Command("kubectl", "get", "ns", "ns1") // #nosec G204
-		err := cmd.Run()
-		if err != nil {
-			cmd = exec.Command("kubectl", "create", "ns", "ns1") // #nosec G204
-			err = cmd.Run()
-			if err != nil {
-				return err
-			}
-		}
-
-		// create a stateful set with one pod and one volume for AM testing, requires pflex driver installed and op-e2e-vxflexos SC created
-		cmd2 := exec.Command("kubectl", "apply", "-n", "ns1", "-f", "testfiles/sample-application/test-sts.yaml")
-		err = cmd2.Run()
-		if err != nil {
-			return err
-		}
-
-		// give wp time to setup before we create backup/restores
-		fmt.Println("Sleeping 20 seconds to allow stateful set time to create")
-		time.Sleep(20 * time.Second)
-
 	}
-
 	return nil
 }
 
@@ -278,24 +322,6 @@ func (step *Step) uninstallThirdPartyModule(res Resource, thirdPartyModule strin
 				return fmt.Errorf("cert-manager uninstall failed: %v", err)
 			}
 		}
-	} else if thirdPartyModule == "velero" {
-		amNamespace := os.Getenv("AM_NS")
-		if amNamespace == "" {
-			amNamespace = "test-vxflexos"
-		}
-
-		cmd := exec.Command("helm", "delete", "velero", "--namespace="+amNamespace) // #nosec G204
-		err := cmd.Run()
-		if err != nil {
-			return fmt.Errorf("uninstallation of velero %v failed", err)
-		}
-	} else if thirdPartyModule == "sample-app" {
-		cmd := exec.Command("kubectl", "delete", "-n", "ns1", "-f", "testfiles/sample-application/test-sts.yaml") // #nosec G204
-		err := cmd.Run()
-		if err != nil {
-			return fmt.Errorf("uninstallation of stateful set failed:  %v", err)
-		}
-
 	}
 	return nil
 }
@@ -335,6 +361,33 @@ func (step *Step) validateCustomResourceStatus(res Resource, crNumStr string) er
 	}
 
 	return nil
+}
+
+func (step *Step) validateContainerArg(res Resource, crNumStr string, arg string, container string) error {
+	crNum, _ := strconv.Atoi(crNumStr)
+	cr := res.CustomResource[crNum-1].(csmv1.ContainerStorageModule)
+	dp, err := getDriverDeployment(cr, step.ctrlClient)
+	if err != nil {
+		return fmt.Errorf("failed to get deployment: %v", err)
+	}
+	containerFound := false
+	for _, cnt := range dp.Spec.Template.Spec.Containers {
+		if cnt.Name == container {
+			containerFound = true
+			// iterate through args and see if it was found
+			for _, argVal := range cnt.Args {
+				if argVal == arg {
+					return nil
+				}
+			}
+			return fmt.Errorf("container arg %s not found on container %s", arg, container)
+		}
+	}
+	if !containerFound {
+		return fmt.Errorf("container %s not found in deployment", container)
+	}
+
+	return fmt.Errorf("unknown error validating container arg")
 }
 
 func (step *Step) validateDriverInstalled(res Resource, driverName string, crNumStr string) error {
@@ -445,10 +498,6 @@ func (step *Step) validateModuleInstalled(res Resource, module string, crNumStr 
 
 			case csmv1.Resiliency:
 				return step.validateResiliencyInstalled(cr)
-
-			case csmv1.ApplicationMobility:
-				return step.validateAppMobInstalled(cr)
-
 			default:
 				return fmt.Errorf("%s module is not found", module)
 			}
@@ -490,8 +539,6 @@ func (step *Step) validateModuleNotInstalled(res Resource, module string, crNumS
 
 			case csmv1.Resiliency:
 				return step.validateResiliencyNotInstalled(cr)
-			case csmv1.ApplicationMobility:
-				return step.validateApplicationMobilityNotInstalled(cr)
 			}
 		}
 	}
@@ -510,25 +557,26 @@ func (step *Step) validateObservabilityInstalled(cr csmv1.ContainerStorageModule
 	}
 
 	// check installation for all replicas
-	fakeReconcile := utils.FakeReconcileCSM{
+	fakeReconcile := operatorutils.FakeReconcileCSM{
 		Client:    step.ctrlClient,
 		K8sClient: step.clientSet,
 	}
 
-	clusterClient := utils.GetCluster(context.TODO(), &fakeReconcile)
+	csmNamespace := cr.Namespace
+	clusterClient := operatorutils.GetCluster(context.TODO(), &fakeReconcile)
 
 	// check observability in all clusters
-	if err := checkObservabilityRunningPods(context.TODO(), utils.ObservabilityNamespace, clusterClient.ClusterK8sClient); err != nil {
+	if err := checkObservabilityRunningPods(context.TODO(), csmNamespace, clusterClient.ClusterK8sClient); err != nil {
 		return fmt.Errorf("failed to check for observability installation in %s: %v", clusterClient.ClusterID, err)
 	}
 
 	// check observability's authorization
 	driverType := cr.Spec.Driver.CSIDriverType
-	dpApply, err := getApplyObservabilityDeployment(utils.ObservabilityNamespace, driverType, clusterClient.ClusterCTRLClient)
+	dpApply, err := getApplyObservabilityDeployment(csmNamespace, driverType, clusterClient.ClusterCTRLClient)
 	if err != nil {
 		return err
 	}
-	if authorizationEnabled, _ := utils.IsModuleEnabled(context.TODO(), *instance, csmv1.Authorization); authorizationEnabled {
+	if authorizationEnabled, _ := operatorutils.IsModuleEnabled(context.TODO(), *instance, csmv1.Authorization); authorizationEnabled {
 		if err := correctlyAuthInjected(cr, dpApply.Annotations, dpApply.Spec.Template.Spec.Volumes, dpApply.Spec.Template.Spec.Containers); err != nil {
 			return fmt.Errorf("failed to check for observability authorization installation in %s: %v", clusterClient.ClusterID, err)
 		}
@@ -545,15 +593,16 @@ func (step *Step) validateObservabilityInstalled(cr csmv1.ContainerStorageModule
 
 func (step *Step) validateObservabilityNotInstalled(cr csmv1.ContainerStorageModule) error {
 	// check installation for all replicas
-	fakeReconcile := utils.FakeReconcileCSM{
+	fakeReconcile := operatorutils.FakeReconcileCSM{
 		Client:    step.ctrlClient,
 		K8sClient: step.clientSet,
 	}
 
-	clusterClient := utils.GetCluster(context.TODO(), &fakeReconcile)
+	csmNamespace := cr.Namespace
+	clusterClient := operatorutils.GetCluster(context.TODO(), &fakeReconcile)
 
 	// check observability is not installed
-	if err := checkObservabilityNoRunningPods(context.TODO(), utils.ObservabilityNamespace, clusterClient.ClusterK8sClient); err != nil {
+	if err := checkObservabilityNoRunningPods(context.TODO(), csmNamespace, clusterClient.ClusterK8sClient); err != nil {
 		return fmt.Errorf("failed observability installation check %s: %v", clusterClient.ClusterID, err)
 	}
 
@@ -582,15 +631,15 @@ func (step *Step) validateReplicationInstalled(cr csmv1.ContainerStorageModule) 
 	}
 
 	// check installation for all replicas
-	fakeReconcile := utils.FakeReconcileCSM{
+	fakeReconcile := operatorutils.FakeReconcileCSM{
 		Client:    step.ctrlClient,
 		K8sClient: step.clientSet,
 	}
 
-	clusterClient := utils.GetCluster(context.TODO(), &fakeReconcile)
+	clusterClient := operatorutils.GetCluster(context.TODO(), &fakeReconcile)
 
 	// check replication controllers in cluster
-	if err := checkAllRunningPods(context.TODO(), utils.ReplicationControllerNameSpace, clusterClient.ClusterK8sClient); err != nil {
+	if err := checkAllRunningPods(context.TODO(), operatorutils.ReplicationControllerNameSpace, clusterClient.ClusterK8sClient); err != nil {
 		return fmt.Errorf("failed to check for  replication controllers installation in %s: %v", clusterClient.ClusterID, err)
 	}
 
@@ -604,15 +653,15 @@ func (step *Step) validateReplicationInstalled(cr csmv1.ContainerStorageModule) 
 
 func (step *Step) validateReplicationNotInstalled(cr csmv1.ContainerStorageModule) error {
 	// check installation for all replicas
-	fakeReconcile := utils.FakeReconcileCSM{
+	fakeReconcile := operatorutils.FakeReconcileCSM{
 		Client:    step.ctrlClient,
 		K8sClient: step.clientSet,
 	}
 
-	clusterClient := utils.GetCluster(context.TODO(), &fakeReconcile)
+	clusterClient := operatorutils.GetCluster(context.TODO(), &fakeReconcile)
 
 	// check replication  controller is not installed
-	if err := checkNoRunningPods(context.TODO(), utils.ReplicationControllerNameSpace, clusterClient.ClusterK8sClient); err != nil {
+	if err := checkNoRunningPods(context.TODO(), operatorutils.ReplicationControllerNameSpace, clusterClient.ClusterK8sClient); err != nil {
 		return fmt.Errorf("failed replica installation check %s: %v", clusterClient.ClusterID, err)
 	}
 
@@ -622,8 +671,8 @@ func (step *Step) validateReplicationNotInstalled(cr csmv1.ContainerStorageModul
 		return fmt.Errorf("failed to get deployment: %v", err)
 	}
 	for _, cnt := range dp.Spec.Template.Spec.Containers {
-		if cnt.Name == utils.ReplicationSideCarName {
-			return fmt.Errorf("found %s: %v", utils.ReplicationSideCarName, err)
+		if cnt.Name == operatorutils.ReplicationSideCarName {
+			return fmt.Errorf("found %s: %v", operatorutils.ReplicationSideCarName, err)
 		}
 	}
 
@@ -671,7 +720,6 @@ func (step *Step) validateAuthorizationPodsNotInstalled(res Resource, module str
 }
 
 func (step *Step) setUpStorageClass(_ Resource, templateFile, crType string) error {
-
 	fileString, err := renderTemplate(crType, templateFile)
 	if err != nil {
 		return err
@@ -713,7 +761,6 @@ func (step *Step) setUpStorageClass(_ Resource, templateFile, crType string) err
 }
 
 func (step *Step) createResource(_ Resource, templateFile, crType string) error {
-
 	fileString, err := renderTemplate(crType, templateFile)
 	if err != nil {
 		return err
@@ -783,13 +830,149 @@ func (step *Step) setUpSecret(_ Resource, templateFile, name, namespace, crType 
 	return nil
 }
 
-func renderTemplate(crType string, templateFile string) (string, error) {
+func (step *Step) setUpSecretFromFile(_ Resource, templateFile, name, namespace, crType string) error {
+	// if secret exists - delete it
+	if secretExists(namespace, name) {
+		err := execCommand("kubectl", "delete", "secret", "-n", namespace, name)
+		if err != nil {
+			return fmt.Errorf("failed to delete secret: %s", err.Error())
+		}
+	}
+
 	// find which map to use for secret values
 	mapValues, err := determineMap(crType)
 	if err != nil {
-		return "", err
+		return err
 	}
 
+	for key := range mapValues {
+		val := os.Getenv(mapValues[key])
+
+		err := replaceInFile(key, val, templateFile)
+		if err != nil {
+			return err
+		}
+	}
+
+	// create new secret
+	fileArg := "--from-file=" + templateFile
+	err = execCommand("kubectl", "create", "secret", "generic", "-n", namespace, name, fileArg)
+	if err != nil {
+		return fmt.Errorf("failed to create secret from file %s: %v", templateFile, err)
+	}
+
+	return nil
+}
+
+func (step *Step) generateAndCreateSftpSecrets(_ Resource, privateKeyPath, privateSecretName, publicSecretName, namespace, crType string) error {
+	tmpDir := filepath.Join("temp", "sftp", fmt.Sprintf("%d", time.Now().UnixNano()))
+	defer os.RemoveAll(tmpDir)
+
+	// Load env vars
+	repoAddress, repoUser := os.Getenv("PFLEX_SFTP_REPO_ADDRESS"), os.Getenv("PFLEX_SFTP_REPO_USER")
+	if repoAddress == "" || repoUser == "" {
+		return fmt.Errorf("PFLEX_SFTP_REPO_ADDRESS and PFLEX_SFTP_REPO_USER must be set")
+	}
+	repoHost := strings.TrimPrefix(repoAddress, "sftp://")
+	repoHost = strings.TrimSuffix(repoHost, "/")
+
+	// Prepare temp directories
+	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	sshDir := filepath.Join(tmpDir, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		return fmt.Errorf("failed to create .ssh directory: %w", err)
+	}
+
+	// Copy private key
+	privateKeyFile := filepath.Join(tmpDir, "id_rsa")
+	privateKeyData, err := os.ReadFile(filepath.Clean(privateKeyPath))
+	if err != nil {
+		return fmt.Errorf("failed to read private key: %v", err)
+	}
+	if err := os.WriteFile(privateKeyFile, privateKeyData, 0o600); err != nil {
+		return fmt.Errorf("failed to write private key to temp dir: %v", err)
+	}
+
+	// Run SFTP session to populate known_hosts
+	knownHostsPath := filepath.Join(sshDir, "known_hosts")
+	cmd := exec.Command("sftp",
+		"-o", "UserKnownHostsFile="+knownHostsPath,
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-i", privateKeyFile,
+		fmt.Sprintf("%s@%s", repoUser, repoHost),
+	) // #nosec G204
+	cmd.Stdin = strings.NewReader("exit\n")
+	cmd.Env = append(os.Environ(), "HOME="+tmpDir)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("sftp session failed: %v", err)
+	}
+
+	// Extract repo public key from known_hosts
+	pubKeyBytes, err := os.ReadFile(filepath.Clean(knownHostsPath))
+	if err != nil {
+		return fmt.Errorf("failed to read known_hosts: %v", err)
+	}
+	hostPubKey, err := extractHostPublicKey(string(pubKeyBytes), repoHost)
+	if err != nil {
+		return err
+	}
+
+	// Write key files to disk for secret creation
+	privateOut := filepath.Join(tmpDir, "sftp-secret-private.crt")
+	publicOut := filepath.Join(tmpDir, "sftp-secret-public.crt")
+	if err := os.WriteFile(privateOut, privateKeyData, 0o600); err != nil {
+		return fmt.Errorf("failed to write private secret file: %v", err)
+	}
+	if err := os.WriteFile(publicOut, []byte(hostPubKey), 0o600); err != nil {
+		return fmt.Errorf("failed to write public secret file: %v", err)
+	}
+
+	// Delete and recreate secrets
+	if err := deleteSecretIfExists(namespace, privateSecretName); err != nil {
+		return fmt.Errorf("failed to delete private secret: %w", err)
+	}
+	if err := deleteSecretIfExists(namespace, publicSecretName); err != nil {
+		return fmt.Errorf("failed to delete public secret: %w", err)
+	}
+	if err := execCommand("kubectl", "create", "secret", "generic", privateSecretName,
+		"-n", namespace,
+		"--from-file=user_private_rsa_key="+privateOut); err != nil {
+		return fmt.Errorf("failed to create private SFTP secret: %v", err)
+	}
+
+	if err := execCommand("kubectl", "create", "secret", "generic", publicSecretName,
+		"-n", namespace,
+		"--from-file=repo_public_rsa_key="+publicOut); err != nil {
+		return fmt.Errorf("failed to create public SFTP secret: %v", err)
+	}
+	fmt.Println("SFTP secrets created successfully.")
+
+	return nil
+}
+
+// Extract public key line for host from known_hosts
+func extractHostPublicKey(knownHostsContent, repoHost string) (string, error) {
+	for _, line := range strings.Split(knownHostsContent, "\n") {
+		if strings.HasPrefix(line, repoHost+" ") {
+			return line, nil
+		}
+	}
+	return "", fmt.Errorf("could not extract %s public key from known_hosts", repoHost)
+}
+
+// Delete secret if exists in a namespace
+func deleteSecretIfExists(namespace, secretName string) error {
+	if secretExists(namespace, secretName) {
+		return execCommand("kubectl", "delete", "secret", "-n", namespace, secretName)
+	}
+	return nil
+}
+
+func renderTemplate(crType string, templateFile string) (string, error) {
 	// read the template into memory
 	fileContent, err := os.ReadFile(templateFile) // #nosec G304
 	if err != nil {
@@ -798,6 +981,16 @@ func renderTemplate(crType string, templateFile string) (string, error) {
 
 	// Convert the file content to a string
 	fileString := string(fileContent)
+
+	if crType == "" {
+		return fileString, nil
+	}
+
+	// find which map to use for secret values
+	mapValues, err := determineMap(crType)
+	if err != nil {
+		return "", err
+	}
 
 	// Replace all fields in temporary (in memory) string
 	for key, val := range mapValues {
@@ -840,22 +1033,28 @@ func determineMap(crType string) (map[string]string, error) {
 		mapValues = pmaxAuthArrayConfigMap
 	} else if crType == "authSidecarCert" {
 		mapValues = authSidecarRootCertMap
-	} else if crType == "application-mobility" {
-		mapValues = amConfigMap
 	} else if crType == "pflexAuthCRs" {
 		mapValues = pflexCrMap
 	} else if crType == "pscaleAuthCRs" {
 		mapValues = pscaleCrMap
 	} else if crType == "pmaxAuthCRs" {
 		mapValues = pmaxCrMap
+	} else if crType == "pstoreAuthCRs" {
+		mapValues = pstoreCrMap
 	} else if crType == "pstore" {
 		mapValues = pstoreSecretMap
 	} else if crType == "pstoreEphemeral" {
 		mapValues = pstoreEphemeralVolumeMap
+	} else if crType == "pstoreAuthSidecar" {
+		mapValues = pstoreAuthSidecarMap
+	} else if crType == "pstoreAuth" {
+		mapValues = pstoreAuthSecretMap
 	} else if crType == "unity" {
 		mapValues = unitySecretMap
 	} else if crType == "unityEphemeral" {
 		mapValues = unityEphemeralVolumeMap
+	} else if crType == "''" {
+		return mapValues, nil
 	} else {
 		return mapValues, fmt.Errorf("type: %s is not supported", crType)
 	}
@@ -953,7 +1152,6 @@ func (step *Step) runCustomTestSelector(res Resource, testName string) error {
 }
 
 func (step *Step) setupEphemeralVolumeProperties(_ Resource, templateFile string, crType string) error {
-
 	if crType == "pflexEphemeral" {
 		_ = os.Setenv("PFLEX_VOLUME", fmt.Sprintf("k8s-%s", randomAlphaNumberic(10)))
 	}
@@ -993,7 +1191,6 @@ func getRenderedFilePath(templatePath string) string {
 // "testfiles/powerscale-templates/ephemeral.properties" the rendered file
 // will be written to "temp/powerscale-templates/ephemeral.properties".
 func writeRenderedFile(templatePath, content string) (newPath string, err error) {
-
 	newPath = getRenderedFilePath(templatePath)
 
 	// make sure the base path exist
@@ -1209,12 +1406,12 @@ func (step *Step) validateAuthorizationProxyServerInstalled(cr csmv1.ContainerSt
 	}
 
 	// check installation for all AuthorizationProxyServer
-	fakeReconcile := utils.FakeReconcileCSM{
+	fakeReconcile := operatorutils.FakeReconcileCSM{
 		Client:    step.ctrlClient,
 		K8sClient: step.clientSet,
 	}
 
-	clusterClient := utils.GetCluster(context.TODO(), &fakeReconcile)
+	clusterClient := operatorutils.GetCluster(context.TODO(), &fakeReconcile)
 
 	// check AuthorizationProxyServer in all clusters
 	if err := checkAuthorizationProxyServerPods(context.TODO(), cr.Namespace, clusterClient.ClusterK8sClient); err != nil {
@@ -1228,46 +1425,18 @@ func (step *Step) validateAuthorizationProxyServerInstalled(cr csmv1.ContainerSt
 
 func (step *Step) validateAuthorizationProxyServerNotInstalled(cr csmv1.ContainerStorageModule) error {
 	// check installation for all AuthorizationProxyServer
-	fakeReconcile := utils.FakeReconcileCSM{
+	fakeReconcile := operatorutils.FakeReconcileCSM{
 		Client:    step.ctrlClient,
 		K8sClient: step.clientSet,
 	}
 
-	clusterClient := utils.GetCluster(context.TODO(), &fakeReconcile)
+	clusterClient := operatorutils.GetCluster(context.TODO(), &fakeReconcile)
 
 	// check AuthorizationProxyServer is not installed
 	if err := checkAuthorizationProxyServerNoRunningPods(context.TODO(), cr.Namespace, clusterClient.ClusterK8sClient); err != nil {
 		return fmt.Errorf("failed AuthorizationProxyServer installation check %s: %v", clusterClient.ClusterID, err)
 	}
 
-	return nil
-}
-
-func (step *Step) validateAppMobInstalled(cr csmv1.ContainerStorageModule) error {
-	// providing additional time to get appmob pods up to running
-	time.Sleep(10 * time.Second)
-	instance := new(csmv1.ContainerStorageModule)
-	if err := step.ctrlClient.Get(context.TODO(), client.ObjectKey{
-		Namespace: cr.Namespace,
-		Name:      cr.Name,
-	}, instance,
-	); err != nil {
-		return err
-	}
-
-	fakeReconcile := utils.FakeReconcileCSM{
-		Client:    step.ctrlClient,
-		K8sClient: step.clientSet,
-	}
-
-	clusterClient := utils.GetCluster(context.TODO(), &fakeReconcile)
-
-	if err := checkApplicationMobilityPods(context.TODO(), cr.Namespace, clusterClient.ClusterK8sClient); err != nil {
-		return fmt.Errorf("failed to check for App-mob installation in %s: %v", clusterClient.ClusterID, err)
-	}
-
-	// provide few seconds for cluster to settle down
-	time.Sleep(10 * time.Second)
 	return nil
 }
 
@@ -1298,6 +1467,20 @@ func (step *Step) authProxyServerPrereqs(cr csmv1.ContainerStorageModule) error 
 	b, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to create authorization namespace: %v\nErrMessage:\n%s", err, string(b))
+	}
+
+	isOpenShift := os.Getenv("IS_OPENSHIFT")
+	if isOpenShift == "true" {
+		cmd = exec.Command("oc", "label",
+			"ns", cr.Namespace,
+			"pod-security.kubernetes.io/enforce=privileged",
+			"security.openshift.io/MinimallySufficientPodSecurityStandard=privileged",
+			"--overwrite",
+		) // #nosec G204
+		b, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to label authorization namespace: %v\nErrMessage:\n%s", err, string(b))
+		}
 	}
 
 	cmd = exec.Command("kubectl", "apply",
@@ -1350,7 +1533,7 @@ func (step *Step) authProxyServerPrereqs(cr csmv1.ContainerStorageModule) error 
 	return nil
 }
 
-func (step *Step) configureAuthorizationProxyServer(res Resource, driver string, crNumStr string) error {
+func (step *Step) configureAuthorizationProxyServer(res Resource, authConfigurationPath, driver, crNumStr string) error {
 	fmt.Println("=== Configuring Authorization Proxy Server ===")
 
 	crNum, _ := strconv.Atoi(crNumStr)
@@ -1387,6 +1570,13 @@ func (step *Step) configureAuthorizationProxyServer(res Resource, driver string,
 		csmTenantName = os.Getenv("PMAX_TENANT")
 	}
 
+	if driver == "powerstore" {
+		_ = os.Setenv("PSTORE_STORAGE", "powerstore")
+		_ = os.Setenv("DRIVER_NAMESPACE", "test-powerstore")
+		storageType = os.Getenv("PSTORE_STORAGE")
+		csmTenantName = os.Getenv("PSTORE_TENANT")
+	}
+
 	proxyHost = os.Getenv("PROXY_HOST")
 	driverNamespace = os.Getenv("DRIVER_NAMESPACE")
 
@@ -1396,294 +1586,22 @@ func (step *Step) configureAuthorizationProxyServer(res Resource, driver string,
 	}
 
 	address := proxyHost
-	// For v1.9.1 and earlier, use the old address
-	configVersion := cr.GetModule(csmv1.AuthorizationServer).ConfigVersion
-	isOldVersion, _ := utils.MinVersionCheck(configVersion, "v1.9.1")
-	if isOldVersion {
-		address = "authorization-ingress-nginx-controller.authorization.svc.cluster.local"
-	}
-
 	fmt.Printf("Address: %s\n", address)
 
-	switch semver.Major(configVersion) {
-	case "v2":
-		return step.AuthorizationV2Resources(storageType, driver, driverNamespace, address, port, csmTenantName, configVersion)
-	case "v1":
-		return step.AuthorizationV1Resources(storageType, driver, port, address, driverNamespace)
-	default:
-		return fmt.Errorf("authorization major version %s not supported", semver.Major(configVersion))
-	}
-}
-
-// AuthorizationV1Resources creates resources using karavictl for V1 versions of Authorization Proxy Server
-func (step *Step) AuthorizationV1Resources(storageType, driver, port, proxyHost, driverNamespace string) error {
-	fmt.Println("=====Waiting for everything to be up and running, adding a sleep time of 120 seconds before creating the role, tenant and role binding===")
-	time.Sleep(120 * time.Second)
-	var (
-		endpoint = ""
-		sysID    = ""
-		user     = ""
-		password = ""
-		pool     = ""
-		// YAML variables
-		endpointvar = ""
-		systemIdvar = ""
-		uservar     = ""
-		passvar     = ""
-		poolvar     = ""
-	)
-
-	if driver == "powerflex" {
-		endpointvar = "PFLEX_ENDPOINT"
-		systemIdvar = "PFLEX_SYSTEMID"
-		uservar = "PFLEX_USER"
-		passvar = "PFLEX_PASS"
-		poolvar = "PFLEX_POOL"
-	}
-
-	if driver == "powerscale" {
-		endpointvar = "PSCALE_ENDPOINT"
-		systemIdvar = "PSCALE_CLUSTER"
-		uservar = "PSCALE_USER"
-		passvar = "PSCALE_PASS"
-		poolvar = "PSCALE_POOL_V1"
-	}
-
-	if driver == "powermax" {
-		endpointvar = "PMAX_ENDPOINT"
-		systemIdvar = "PMAX_SYSTEMID"
-		uservar = "PMAX_USER"
-		passvar = "PMAX_PASS"
-		poolvar = "PMAX_POOL_V1"
-	}
-
-	// get env variables
-	if os.Getenv(endpointvar) != "" {
-		endpoint = os.Getenv(endpointvar)
-
-		if driver == "powerscale" {
-			port := os.Getenv("PSCALE_PORT")
-			if port == "" {
-				fmt.Println("=== PSCALE_PORT not set, using default port 8080 ===")
-				port = "8080"
-			}
-
-			endpoint = endpoint + ":" + port
-		}
-	}
-	if os.Getenv(systemIdvar) != "" {
-		sysID = os.Getenv(systemIdvar)
-	}
-	if os.Getenv(uservar) != "" {
-		user = os.Getenv(uservar)
-	}
-	if os.Getenv(passvar) != "" {
-		password = os.Getenv(passvar)
-	}
-	if os.Getenv(poolvar) != "" {
-		pool = os.Getenv(poolvar)
-	}
-
-	// Create Admin Token
-	fmt.Printf("=== Generating Admin Token ===\n")
-	adminTkn := exec.Command("karavictl",
-		"admin", "token",
-		"--name", "Admin",
-		"--jwt-signing-secret", "secret",
-		"--refresh-token-expiration", fmt.Sprint(30*24*time.Hour),
-		"--access-token-expiration", fmt.Sprint(2*time.Hour),
-	) // #nosec G204
-	b, err := adminTkn.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to create admin token: %v\nErrMessage:\n%s", err, string(b))
-	}
-
-	fmt.Println("=== Writing Admin Token to Tmp File ===\n ")
-	err = os.WriteFile("temp/adminToken.yaml", b, 0o644) // #nosec G303, G306
-	if err != nil {
-		return fmt.Errorf("failed to write admin token: %v\nErrMessage:\n%s", err, string(b))
-	}
-
-	// Check for storage
-	fmt.Println("\n=== Checking Storage ===\n ")
-	cmd := exec.Command("karavictl",
-		"--admin-token", "temp/adminToken.yaml",
-		"storage", "list",
-		"--insecure", "--addr", fmt.Sprintf("%s:%s", proxyHost, port),
-	) // #nosec G204
-
-	// by default, assume we will create storage
-	skipStorage := false
-
-	fmt.Println("=== Checking Storage === \n", cmd.String())
-	b, err = cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to check storage %s: %v\nErrMessage:\n%s", storageType, err, string(b))
-	}
-
-	storage := make(map[string]json.RawMessage)
-
-	err = json.Unmarshal(b, &storage)
-	if err != nil {
-		return fmt.Errorf("failed to marshall response:%s \nErrMessage:\n%s", string(b), err)
-	}
-
-	for k, v := range storage {
-		if k == storageType {
-			fmt.Printf("Storage %s is already registered. \n It has the following config: %s \n", k, v)
-			skipStorage = true
-		}
-	}
-
-	if !skipStorage {
-
-		// Create storage
-		fmt.Println("\n=== Creating Storage ===\n ")
-		cmd = exec.Command("karavictl",
-			"--admin-token", "temp/adminToken.yaml",
-			"storage", "create",
-			"--type", storageType,
-			"--endpoint", fmt.Sprintf("https://%s", endpoint),
-			"--system-id", sysID,
-			"--user", user,
-			"--password", password,
-			"--array-insecure",
-			"--insecure", "--addr", fmt.Sprintf("%s:%s", proxyHost, port),
-		) // #nosec G204
-		fmt.Println("=== Storage === \n", cmd.String())
-		b, err = cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to create storage %s: %v\nErrMessage:\n%s", storageType, err, string(b))
-		}
-
-	}
-
-	// Create Tenant
-	fmt.Println("\n\n=== Creating Tenant ===\n ")
-	cmd = exec.Command("karavictl",
-		"--admin-token", "temp/adminToken.yaml",
-		"tenant", "create",
-		"-n", tenantName, "--insecure", "--addr", fmt.Sprintf("%s:%s", proxyHost, port),
-	) // #nosec G204
-	b, err = cmd.CombinedOutput()
-	fmt.Println("=== Tenant === \n", cmd.String())
-
-	if err != nil && !strings.Contains(string(b), "tenant already exists") {
-		return fmt.Errorf("failed to create tenant %s: %v\nErrMessage:\n%s", tenantName, err, string(b))
-	}
-
-	// By default, assume a role will be created
-	skipCreateRole := false
-	cmd = exec.Command("karavictl",
-		"--admin-token", "temp/adminToken.yaml",
-		"role", "list",
-		"--insecure", "--addr", fmt.Sprintf("%s:%s", proxyHost, port),
-	) // #nosec G204
-
-	fmt.Println("=== Checking Roles === \n", cmd.String())
-
-	b, err = cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to check roles: %v\nErrMessage:\n%s", err, string(b))
-	}
-
-	roles := make(map[string]json.RawMessage)
-
-	err = json.Unmarshal(b, &roles)
-	if err != nil {
-		return fmt.Errorf("failed to marshall response:%s \nErrMessage:\n%s", string(b), err)
-	}
-
-	for k, v := range roles {
-		if k == roleName {
-			fmt.Printf("Role %s is already created. \n It has the following config: %s \n", k, v)
-			skipCreateRole = true
-		}
-	}
-
-	if !skipCreateRole {
-
-		// Create Role
-		fmt.Println("\n\n=== Creating Role ===\n ")
-		if storageType == "powerscale" {
-			quotaLimit = "0"
-		}
-		cmd = exec.Command("karavictl",
-			"--admin-token", "temp/adminToken.yaml",
-			"role", "create",
-			fmt.Sprintf("--role=%s=%s=%s=%s=%s",
-				roleName, storageType, sysID, pool, quotaLimit),
-			"--insecure", "--addr", fmt.Sprintf("%s:%s", proxyHost, port),
-		) // #nosec G204
-
-		fmt.Println("=== Role === \n", cmd.String())
-		b, err = cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to create role %s: %v\nErrMessage:\n%s", roleName, err, string(b))
-		}
-
-		// role creation take few seconds
-		time.Sleep(5 * time.Second)
-
-	}
-	// Bind role
-	fmt.Println("\n\n=== Creating RoleBinding ===\n ")
-	cmd = exec.Command("karavictl",
-		"--admin-token", "temp/adminToken.yaml",
-		"rolebinding", "create",
-		"--tenant", tenantName,
-		"--role", roleName,
-		"--insecure", "--addr", fmt.Sprintf("%s:%s", proxyHost, port),
-	) // #nosec G204
-	fmt.Println("=== Binding Role ===\n", cmd.String())
-	b, err = cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to create rolebinding %s: %v\nErrMessage:\n%s", roleName, err, string(b))
-	}
-
-	// Generate token
-	fmt.Println("\n\n=== Generating token ===\n ")
-	cmd = exec.Command("karavictl",
-		"--admin-token", "temp/adminToken.yaml",
-		"generate", "token",
-		"--tenant", tenantName,
-		"--insecure", "--addr", fmt.Sprintf("%s:%s", proxyHost, port),
-		"--access-token-expiration", fmt.Sprint(2*time.Hour),
-	) // #nosec G204
-	fmt.Println("=== Token ===\n", cmd.String())
-	b, err = cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to generate token for %s: %v\nErrMessage:\n%s", tenantName, err, string(b))
-	}
-
-	// Apply token to CSI driver host
-	fmt.Println("\n\n=== Applying token ===\n ")
-
-	err = os.WriteFile("temp/token.yaml", b, 0o644) // #nosec G303, G306
-	if err != nil {
-		return fmt.Errorf("failed to write tenant token: %v\nErrMessage:\n%s", err, string(b))
-	}
-
-	cmd = exec.Command("kubectl", "apply",
-		"-f", "temp/token.yaml",
-		"-n", driverNamespace,
-	) // #nosec G204
-	b, err = cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to apply token: %v\nErrMessage:\n%s", err, string(b))
-	}
-
-	fmt.Println("=== Token Applied ===\n ")
-	return nil
+	return step.AuthorizationV2Resources(res, storageType, driver, driverNamespace, address, port, csmTenantName, cr.Spec.Modules[0].ConfigVersion, authConfigurationPath)
 }
 
 // AuthorizationV2Resources creates resources using CRs and dellctl for V2 versions of Authorization Proxy Server
-func (step *Step) AuthorizationV2Resources(storageType, driver, driverNamespace, proxyHost, port, csmTenantName, configVersion string) error {
+func (step *Step) AuthorizationV2Resources(res Resource, storageType, driver, driverNamespace, proxyHost, port, csmTenantName, configVersion string, configurationTemplate string) error {
 	var (
 		crMap               = ""
-		templateFile        = "testfiles/authorization-templates/storage_csm_authorization_v2_template.yaml"
+		templateFile        = configurationTemplate
 		updatedTemplateFile = ""
 	)
+
+	if semver.Compare(configVersion, "v2.3.0") == -1 {
+		templateFile = "testfiles/authorization-templates/storage_csm_authorization_v2_template_vault.yaml"
+	}
 
 	if driver == "powerflex" {
 		crMap = "pflexAuthCRs"
@@ -1694,9 +1612,13 @@ func (step *Step) AuthorizationV2Resources(storageType, driver, driverNamespace,
 	} else if driver == "powermax" {
 		crMap = "pmaxAuthCRs"
 		updatedTemplateFile = "temp/authorization-templates/storage_csm_authorization_crs_powermax.yaml"
+	} else if driver == "powerstore" {
+		crMap = "pstoreAuthCRs"
+		updatedTemplateFile = "temp/authorization-templates/storage_csm_authorization_crs_powerstore.yaml"
 	}
 
-	err := execShell(fmt.Sprintf("mkdir -p temp/authorization-templates && cp %s %s", templateFile, updatedTemplateFile))
+	pathNum, _ := strconv.Atoi(configurationTemplate)
+	err := execShell(fmt.Sprintf("mkdir -p temp/authorization-templates && cp %s %s", res.Scenario.Paths[pathNum-1], updatedTemplateFile))
 	if err != nil {
 		return fmt.Errorf("failed to copy template file %s to %s: %v", templateFile, updatedTemplateFile, err)
 	}
@@ -1739,6 +1661,14 @@ func (step *Step) AuthorizationV2Resources(storageType, driver, driverNamespace,
 			}
 
 			val = val + ":" + port
+		}
+
+		if key == "REPLACE_USERNAME_OBJECT_NAME" {
+			val = fmt.Sprintf("secrets/%s-username", driver)
+		}
+
+		if key == "REPLACE_PASSWORD_OBJECT_NAME" {
+			val = fmt.Sprintf("secrets/%s-password", driver)
 		}
 
 		err := replaceInFile(key, val, updatedTemplateFile)
@@ -1832,8 +1762,8 @@ func (step *Step) validateResiliencyNotInstalled(cr csmv1.ContainerStorageModule
 		return fmt.Errorf("failed to get deployment: %v", err)
 	}
 	for _, cnt := range dp.Spec.Template.Spec.Containers {
-		if cnt.Name == utils.ResiliencySideCarName {
-			return fmt.Errorf("found %s: %v", utils.ResiliencySideCarName, err)
+		if cnt.Name == operatorutils.ResiliencySideCarName {
+			return fmt.Errorf("found %s: %v", operatorutils.ResiliencySideCarName, err)
 		}
 	}
 
@@ -1843,79 +1773,28 @@ func (step *Step) validateResiliencyNotInstalled(cr csmv1.ContainerStorageModule
 		return fmt.Errorf("failed to get daemonset: %v", err)
 	}
 	for _, cnt := range ds.Spec.Template.Spec.Containers {
-		if cnt.Name == utils.ResiliencySideCarName {
-			return fmt.Errorf("found %s: %v", utils.ResiliencySideCarName, err)
+		if cnt.Name == operatorutils.ResiliencySideCarName {
+			return fmt.Errorf("found %s: %v", operatorutils.ResiliencySideCarName, err)
 		}
 	}
 	return nil
 }
 
-// Render the AM CR template into a temporary file with the same name
-func (step *Step) configureAMInstall(_ Resource, templateFile string) error {
-	fileString, err := renderTemplate("application-mobility", templateFile)
+// Render the Powerflex SFTP CR template into a temporary file with the same name
+func (step *Step) configurePowerflexSftpInstall(res Resource, crNumStr string) error {
+	crNum, _ := strconv.Atoi(crNumStr)
+	crFilePath := res.Scenario.Paths[crNum-1]
+	fileString, err := renderTemplate("pflex", crFilePath)
 	if err != nil {
 		return err
 	}
 
-	filePath, err := writeRenderedFile(templateFile, fileString)
+	filePath, err := writeRenderedFile(crFilePath, fileString)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Rendered template %s into %s\n", templateFile, filePath)
+	fmt.Printf("Rendered template %s into %s\n", crFilePath, filePath)
 
-	// Setup RH registry authentication secret. Calling it here,
-	// since configureAMInstall is used to setup each AM test.
-	err = setupAMImagePullSecret()
-	if err != nil {
-		return fmt.Errorf("failed to setup RH registry authentication for App Mobility: %v", err)
-	}
-
-	return nil
-}
-
-// For authentication to registry.redhat.io, create an image pull secret and
-// associate it with the service account vxflexos-app-mobility-controller,
-// that is used by the AM controller manager.
-// Normally, this service account is created by Operator, but we create it here
-// in advance to set imagePullSecrets.
-func setupAMImagePullSecret() error {
-	if os.Getenv("RH_REGISTRY_USERNAME") == "" || os.Getenv("RH_REGISTRY_PASSWORD") == "" {
-		return fmt.Errorf("env variable RH_REGISTRY_USERNAME or RH_REGISTRY_PASSWORD is not set," +
-			" set it in array-info.env before continuing")
-	}
-
-	// Create or update the image pull secret
-	err := execShell(`kubectl -n test-vxflexos create secret docker-registry rhregcred \
---docker-server="https://registry.redhat.io" --docker-username="$RH_REGISTRY_USERNAME" \
---docker-password="$RH_REGISTRY_PASSWORD" --dry-run=client -o yaml --save-config | kubectl apply -f -`)
-	if err != nil {
-		return fmt.Errorf("failed to create rh image pull secret: %v", err)
-	}
-
-	// Create or update the service account and associate it with the image pull secret
-	err = execShell(`kubectl create --dry-run=client -o yaml --save-config \
--f testfiles/application-mobility-templates/controller-manager-sa.yaml | kubectl apply -f -`)
-	if err != nil {
-		return fmt.Errorf("failed to create am controller manager service account: %v", err)
-	}
-
-	return nil
-}
-
-func (step *Step) validateApplicationMobilityNotInstalled(cr csmv1.ContainerStorageModule) error {
-	fakeReconcile := utils.FakeReconcileCSM{
-		Client:    step.ctrlClient,
-		K8sClient: step.clientSet,
-	}
-
-	clusterClient := utils.GetCluster(context.TODO(), &fakeReconcile)
-
-	err := checkApplicationMobilityPods(context.TODO(), cr.Namespace, clusterClient.ClusterK8sClient)
-	if err == nil {
-		return fmt.Errorf("AM pods found in namespace: %s", cr.Namespace)
-	}
-
-	fmt.Println("All AM pods removed ")
 	return nil
 }
 
@@ -1949,6 +1828,8 @@ func (step *Step) deleteAuthorizationCRs(_ Resource, driver string) error {
 		updatedTemplateFile = "temp/authorization-templates/storage_csm_authorization_crs_powerscale.yaml"
 	} else if driver == "powermax" {
 		updatedTemplateFile = "temp/authorization-templates/storage_csm_authorization_crs_powermax.yaml"
+	} else if driver == "powerstore" {
+		updatedTemplateFile = "temp/authorization-templates/storage_csm_authorization_crs_powerstore.yaml"
 	}
 
 	cmd := exec.Command("kubectl", "delete", "-f", updatedTemplateFile)
@@ -2040,7 +1921,6 @@ func (step *Step) setUpReverseProxy(_ Resource, namespace string) error {
 }
 
 func (step *Step) setUpTLSSecretWithSAN(res Resource, namespace string) error {
-
 	// Paths for the key, CSR, and certificate files
 	keyPath := "temp/tls.key"
 	csrPath := "temp/tls.csr"
